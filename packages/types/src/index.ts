@@ -543,6 +543,7 @@ export interface PendingDappRequest {
   createdAt: number
   signRequest?: import('./externalSign').ExternalSignRequest
   prepared?: import('./externalSign').PrepareSignResponse
+  localReview?: import('./externalSign').ExternalSignLocalReview
   source?: import('./externalSign').ExternalSignSource
 }
 

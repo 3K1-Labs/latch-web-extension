@@ -1,11 +1,11 @@
 import type { Network } from '@latch/types'
 
 /** Default shared WebAuthn RP ID (hostname only). Overridable via PLASMO_PUBLIC_WEBAUTHN_RP_ID. */
-export const DEFAULT_WEBAUTHN_RP_ID = 'latch-testing.vercel.app'
+export const DEFAULT_WEBAUTHN_RP_ID = 'uselatch.app'
 
 /**
  * Normalize a WebAuthn RP ID / origin-ish string to a bare hostname.
- * Accepts `latch-testing.vercel.app` or `https://latch-testing.vercel.app/` — never a path or port.
+ * Accepts `uselatch.app` or `https://uselatch.app/` — never a path or port.
  */
 export function normalizeWebauthnRpId(raw: string): string {
   const trimmed = raw.trim()

@@ -91,6 +91,7 @@ export default function SignRequestTab() {
 
   async function handleConfirm() {
     if (!session?.prepared || !activeAccount || !session.signRequest.callback) return
+    if (session.localReview?.confirmBlocked) return
     setBusy(true)
     setError(null)
     try {
@@ -215,6 +216,7 @@ export default function SignRequestTab() {
           <ExternalSignReviewScreen
             origin={session.origin}
             prepared={session.prepared}
+            localReview={session.localReview}
             busy={busy}
             progressLabel={progressLabel}
             error={error}

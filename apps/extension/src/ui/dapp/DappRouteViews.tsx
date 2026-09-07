@@ -161,12 +161,14 @@ export function DappRouteViews({
         <ExternalSignReviewScreen
           origin={pendingDappRequests[0].origin}
           prepared={pendingDappRequests[0].prepared}
+          localReview={pendingDappRequests[0].localReview}
           busy={dappBusy}
           progressLabel={dappProgressLabel}
           error={dappError}
           onConfirm={() => {
             const req = pendingDappRequests[0]
             if (!req?.prepared || !activeAccount) return
+            if (req.localReview?.confirmBlocked) return
             void (async () => {
               setDappBusy(true)
               setDappError(null)
