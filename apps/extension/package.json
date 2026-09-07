@@ -59,6 +59,7 @@
       "cookies"
     ],
     "host_permissions": [
+      "https://uselatch.app/*",
       "https://latch-testing.vercel.app/*",
       "https://v0-latch-stellar.vercel.app/*",
       "https://horizon-testnet.stellar.org/*",

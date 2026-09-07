@@ -128,20 +128,29 @@ Render onboarding until `setupState === "has_account"`, then the dashboard/home 
 
 Passkeys use a **shared HTTPS-domain RP ID** so the same credential can work in the Chrome extension, a future Latch website, and associated native apps.
 
-- **RP ID:** `PLASMO_PUBLIC_WEBAUTHN_RP_ID` (default `latch-testing.vercel.app`). Hostname only — never `chrome.runtime.id`.
-- **Origins:** ceremonies from the extension produce `clientDataJSON.origin = chrome-extension://<chrome.runtime.id>`. Web ceremonies use `https://latch-testing.vercel.app`. The Latch API must allowlist both as `expectedOrigins` while always verifying `expectedRPID` = the domain.
+- **RP ID:** `PLASMO_PUBLIC_WEBAUTHN_RP_ID` (default `uselatch.app`). Hostname only — never `chrome.runtime.id`.
+- **Origins:** ceremonies from the extension produce `clientDataJSON.origin = chrome-extension://<chrome.runtime.id>`. Web ceremonies use `https://uselatch.app`. The Latch API must allowlist both as `expectedOrigins` while always verifying `expectedRPID` = the domain.
 - The background still sends **`chromeExtensionId`** (`chrome.runtime.id`) on WebAuthn-related API calls as an **origin hint only** — not as `rp.id`.
 
 **Contract for the Latch API** (registration begin/finish, authentication begin/finish, and any route that verifies WebAuthn assertions):
 
-- Always set **`rp.id` / `rpId`** = `WEBAUTHN_RP_ID` (`latch-testing.vercel.app`), for both web and extension clients.
+- Always set **`rp.id` / `rpId`** = `WEBAUTHN_RP_ID` (`uselatch.app`), for both web and extension clients.
 - When `chromeExtensionId` is present, include **`chrome-extension://<chromeExtensionId>`** in **`expectedOrigins`** (do **not** set `expectedRPID` to the extension id).
-- Also allow `https://latch-testing.vercel.app` in `expectedOrigins`.
+- Also allow `https://uselatch.app` in `expectedOrigins`.
 - Prefer the finish-body `chromeExtensionId` if session storage is unreliable.
 
 Full backend cutover guide: [`LATCH_BACKEND_DOMAIN_WEBAUTHN_RPID.md`](LATCH_BACKEND_DOMAIN_WEBAUTHN_RPID.md).
 
-The extension merges **`chromeExtensionId`** into begin, registration finish, authentication finish, and **`submitTxWebauthn`** request bodies from [`api/webauthn.ts`](apps/extension/src/background/api/webauthn.ts) and [`api/transactions.ts`](apps/extension/src/background/api/transactions.ts). The UI asserts server-issued **`rp.id` / `rpId`** matches **`latchWebauthnRpId()`** before calling `startRegistration` / `startAuthentication` (see [`passkey.ts`](apps/extension/src/ui/webauthn/passkey.ts) → `assertBeginOptionsRpIdMatchesCanonicalDomain`). Extension manifest must include host permission `https://latch-testing.vercel.app/*` so Chrome can claim that RP ID from extension pages.
+The extension merges **`chromeExtensionId`** into begin, registration finish, authentication finish, and **`submitTxWebauthn`** request bodies from [`api/webauthn.ts`](apps/extension/src/background/api/webauthn.ts) and [`api/transactions.ts`](apps/extension/src/background/api/transactions.ts). The UI asserts server-issued **`rp.id` / `rpId`** matches **`latchWebauthnRpId()`** before calling `startRegistration` / `startAuthentication` (see [`passkey.ts`](apps/extension/src/ui/webauthn/passkey.ts) → `assertBeginOptionsRpIdMatchesCanonicalDomain`). Extension manifest must include host permission `https://uselatch.app/*` so Chrome can claim that RP ID from extension pages.
+
+### dApp external-sign review (hybrid)
+
+dApp `signTransaction` / sign-request review uses **wallet-side XDR decode** for what the user sees (`parseTxForReview` / `assessExternalSignReview` in `@latch/stellar`). The review list must not trust `prepare-sign` `operations[]` (often empty on the Go API).
+
+- **`prepare-sign` remains mandatory** for auth templates, digests, and signing. Confirm still consumes `prepared` via `signAndSubmitBuiltTx` / `signWithoutSubmitBuiltTx`.
+- **Consistency checks** (network, active smart account `C…`, invoke contract id sets from unsigned XDR vs `prepared.txXdr`) hard-block Confirm when they disagree. Compare contract ids — not raw XDR string equality.
+- **Fail closed** if Latch API / `prepare-sign` is down: no review and no “review anyway” path. Client-side simulate is out of scope.
+- Popup, side panel, and `tabs/sign-request.tsx` all render the same `localReview` payload from `prepareExternalSignSession`.
 
 ### Multisig wallets (`/api/multisig` — shipped)
 

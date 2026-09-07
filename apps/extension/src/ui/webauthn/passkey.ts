@@ -441,7 +441,7 @@ export function narrowAuthenticationOptionsToCredential(
 
 /**
  * Ensures server-issued options use the shared HTTPS-domain RP ID
- * (`latchWebauthnRpId()`, e.g. latch-testing.vercel.app), not the Chrome extension id.
+ * (`latchWebauthnRpId()`, e.g. uselatch.app), not the Chrome extension id.
  * No-op when not on a chrome-extension page (e.g. unit tests without extension globals).
  */
 export function assertBeginOptionsRpIdMatchesCanonicalDomain(options: unknown): void {

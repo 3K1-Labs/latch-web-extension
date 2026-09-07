@@ -1,4 +1,5 @@
 import type {
+  ExternalSignLocalReview,
   ExternalSignRequest,
   ExternalSignResult,
   ExternalSignSource,
@@ -8,8 +9,10 @@ import type {
   SendSignerType,
   StoredAccount,
 } from '@latch/types'
+import { assessExternalSignReview } from '@latch/stellar'
 
 import { BackendError, fetchSignPayload, prepareSign } from '../backend'
+import { getActiveNetwork, networkPassphraseFor } from '../network/config'
 import { getAccounts } from '../storage'
 import { isOriginAllowedForSigning } from './allowList'
 import { assertAllowedCallbackUrl } from './callbackUrl'
@@ -98,6 +101,7 @@ export async function prepareExternalSignSession(args: {
   origin: string
   signRequest: ExternalSignRequest
   prepared: PrepareSignResponse
+  localReview: ExternalSignLocalReview
 }> {
   const origin = resolveOrigin(args.request, args.senderUrl)
 
@@ -130,13 +134,27 @@ export async function prepareExternalSignSession(args: {
     signerG: active.gAddress,
   })
 
-  return { origin, signRequest, prepared }
+  const activeNetwork = await getActiveNetwork()
+  const localReview = assessExternalSignReview({
+    unsignedTxXdr,
+    preparedTxXdr: prepared.txXdr,
+    networkPassphrase: networkPassphraseFor(signRequest.network),
+    signRequestNetwork: signRequest.network,
+    preparedNetwork: prepared.network,
+    activeNetwork,
+    signRequestSmartAccount: signRequest.smartAccountAddress,
+    preparedSmartAccount: prepared.smartAccountAddress,
+    activeSmartAccount: active.smartAccountAddress,
+  })
+
+  return { origin, signRequest, prepared, localReview }
 }
 
 export function buildPendingExternalSignRequest(args: {
   origin: string
   signRequest: ExternalSignRequest
   prepared: PrepareSignResponse
+  localReview: ExternalSignLocalReview
   source: ExternalSignSource
 }): PendingDappRequest {
   return {
@@ -146,6 +164,7 @@ export function buildPendingExternalSignRequest(args: {
     createdAt: Date.now(),
     signRequest: args.signRequest,
     prepared: args.prepared,
+    localReview: args.localReview,
     source: args.source,
   }
 }
@@ -244,6 +263,7 @@ export async function runExternalSignFlow(args: {
       origin: session.origin,
       signRequest: session.signRequest,
       prepared: session.prepared,
+      localReview: session.localReview,
       source: args.source,
     })
 
@@ -257,6 +277,7 @@ export async function runExternalSignFlow(args: {
         origin: session.origin,
         signRequest: session.signRequest,
         prepared: session.prepared,
+        localReview: session.localReview,
       }
     }
 

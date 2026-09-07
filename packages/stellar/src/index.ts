@@ -17,6 +17,8 @@ export {
 
 export { buildClassicNativePaymentTx } from './classicXlmPayment'
 export { buildUnsignedSacTransferTx } from './sacTransfer'
+export { assessExternalSignReview, parseTxForReview } from './parseTxForReview'
+export type { AssessExternalSignReviewParams, ParsedTxForReview } from './parseTxForReview'
 
 export {
   createRpcServer,

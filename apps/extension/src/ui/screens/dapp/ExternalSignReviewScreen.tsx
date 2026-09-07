@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import type { PrepareSignResponse } from '@latch/types'
+import type { ExternalSignLocalReview, PrepareSignResponse } from '@latch/types'
 
 function hostnameFromOrigin(origin: string): string {
   try {
@@ -15,9 +15,19 @@ function truncateAddress(address: string, left = 6, right = 4): string {
   return `${address.slice(0, left)}...${address.slice(-right)}`
 }
 
+const STALE_LOCAL_REVIEW: ExternalSignLocalReview = {
+  operations: [],
+  invokeContractIds: [],
+  confirmBlocked: true,
+  confirmBlockedReason:
+    'This sign request is missing local review data. Reject and try again from the dApp.',
+  code: 'unparsable_xdr',
+}
+
 export function ExternalSignReviewScreen({
   origin,
   prepared,
+  localReview: localReviewProp,
   busy,
   progressLabel,
   error,
@@ -26,6 +36,7 @@ export function ExternalSignReviewScreen({
 }: {
   origin: string
   prepared: PrepareSignResponse
+  localReview?: ExternalSignLocalReview | null
   busy?: boolean
   progressLabel?: string | null
   error?: string | null
@@ -34,13 +45,16 @@ export function ExternalSignReviewScreen({
 }) {
   const [expandedOp, setExpandedOp] = useState<number | null>(null)
   const hostname = hostnameFromOrigin(origin)
-  const operations = prepared.operations ?? []
+  const localReview = localReviewProp ?? STALE_LOCAL_REVIEW
+  const operations = localReview.operations
   const feeLine = [
-    prepared.feeLabel ?? 'Fee',
+    prepared.feeLabel ?? null,
     prepared.estimatedFeeXlm ? `${prepared.estimatedFeeXlm} XLM` : null,
   ]
     .filter(Boolean)
     .join(' · ')
+  const confirmBlocked = localReview.confirmBlocked
+  const displayError = error ?? (confirmBlocked && !busy ? localReview.confirmBlockedReason : null)
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col animate-screenIn">
@@ -113,12 +127,14 @@ export function ExternalSignReviewScreen({
         </div>
       </div>
 
-      {error && !busy ? <p className="mt-3 text-center text-sm text-red-300">{error}</p> : null}
+      {displayError ? (
+        <p className="mt-3 text-center text-sm text-red-300">{displayError}</p>
+      ) : null}
 
       <div className="mt-4 space-y-3 shrink-0">
         <button
           type="button"
-          disabled={busy}
+          disabled={busy || confirmBlocked}
           onClick={onConfirm}
           className="h-12 w-full rounded-full bg-primary text-base font-extrabold text-black shadow-soft disabled:opacity-60"
         >

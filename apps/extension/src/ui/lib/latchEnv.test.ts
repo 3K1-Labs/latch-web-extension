@@ -3,17 +3,13 @@ import { DEFAULT_WEBAUTHN_RP_ID, latchWebauthnRpId, normalizeWebauthnRpId } from
 
 describe('latchEnv webauthn RP ID', () => {
   it('normalizeWebauthnRpId strips protocol and path', () => {
-    expect(normalizeWebauthnRpId('latch-testing.vercel.app')).toBe('latch-testing.vercel.app')
-    expect(normalizeWebauthnRpId('https://latch-testing.vercel.app/')).toBe(
-      'latch-testing.vercel.app'
-    )
-    expect(normalizeWebauthnRpId('https://Latch-Testing.Vercel.App/foo')).toBe(
-      'latch-testing.vercel.app'
-    )
+    expect(normalizeWebauthnRpId('uselatch.app')).toBe('uselatch.app')
+    expect(normalizeWebauthnRpId('https://uselatch.app/')).toBe('uselatch.app')
+    expect(normalizeWebauthnRpId('https://UseLatch.App/foo')).toBe('uselatch.app')
   })
 
-  it('latchWebauthnRpId defaults to latch-testing.vercel.app', () => {
-    expect(DEFAULT_WEBAUTHN_RP_ID).toBe('latch-testing.vercel.app')
-    expect(latchWebauthnRpId()).toBe('latch-testing.vercel.app')
+  it('latchWebauthnRpId defaults to uselatch.app', () => {
+    expect(DEFAULT_WEBAUTHN_RP_ID).toBe('uselatch.app')
+    expect(latchWebauthnRpId()).toBe('uselatch.app')
   })
 })
