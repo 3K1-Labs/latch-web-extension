@@ -21,7 +21,7 @@ const STALE_LOCAL_REVIEW: ExternalSignLocalReview = {
   confirmBlocked: true,
   confirmBlockedReason:
     'This sign request is missing local review data. Reject and try again from the dApp.',
-  code: 'unparseable_xdr',
+  code: 'unparsable_xdr',
 }
 
 export function ExternalSignReviewScreen({

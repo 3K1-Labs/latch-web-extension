@@ -140,7 +140,7 @@ describe('assessExternalSignReview', () => {
     expect(review.operations[0]?.type).toBe('sac_transfer')
   })
 
-  it('blocks on unparseable unsigned XDR', () => {
+  it('blocks on unparsable unsigned XDR', () => {
     const prepared = genericInvokeXdr({ contractId: nativeId, fn: 'swap' })
     const review = assessExternalSignReview({
       unsignedTxXdr: '!!!',
@@ -154,7 +154,7 @@ describe('assessExternalSignReview', () => {
       activeSmartAccount: smart,
     })
     expect(review.confirmBlocked).toBe(true)
-    expect(review.code).toBe('unparseable_xdr')
+    expect(review.code).toBe('unparsable_xdr')
   })
 
   it('blocks on network mismatch', () => {

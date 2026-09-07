@@ -12,7 +12,7 @@ export interface ExternalSignLocalReview {
   invokeContractIds: string[]
   confirmBlocked: boolean
   confirmBlockedReason: string | null
-  code?: 'unparseable_xdr' | 'network_mismatch' | 'account_mismatch' | 'contract_mismatch'
+  code?: 'unparsable_xdr' | 'network_mismatch' | 'account_mismatch' | 'contract_mismatch'
 }
 
 export interface PrepareSignRequest {

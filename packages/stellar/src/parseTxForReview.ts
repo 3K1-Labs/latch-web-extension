@@ -251,7 +251,7 @@ export function assessExternalSignReview(
       invokeContractIds,
       confirmBlocked: true,
       confirmBlockedReason: 'Could not decode the unsigned transaction for review.',
-      code: 'unparseable_xdr',
+      code: 'unparsable_xdr',
     }
   }
 
@@ -264,7 +264,7 @@ export function assessExternalSignReview(
       invokeContractIds,
       confirmBlocked: true,
       confirmBlockedReason: 'Could not decode the prepared transaction for consistency checks.',
-      code: 'unparseable_xdr',
+      code: 'unparsable_xdr',
     }
   }
 
