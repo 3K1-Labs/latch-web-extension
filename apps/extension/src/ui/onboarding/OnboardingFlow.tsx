@@ -178,9 +178,6 @@ export function OnboardingFlow() {
 
       {step === 'useExistingPasskey' ? (
         <OnboardingUseExistingPasskeyCard
-          passkeys={passkeyAuth.passkeys}
-          selectedCredentialId={passkeyAuth.selectedCredentialId}
-          onSelectPasskey={passkeyAuth.setSelectedCredentialId}
           prefetchReady={passkeyAuth.prefetchReady}
           prefetchError={passkeyAuth.prefetchError}
           actionError={passkeyAuth.actionError}
