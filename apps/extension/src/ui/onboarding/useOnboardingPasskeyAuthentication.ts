@@ -2,11 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { startAuthentication } from '@simplewebauthn/browser'
 
 import type {
-  BackendAccountsResponse,
-  BackendSessionAccount,
   BackendWebauthnAuthenticationFinishResponse,
   BackendWebauthnBeginResponse,
-  GetAccountsResponse,
   SetSetupStateRequest,
   StoredAccount,
 } from '@latch/types'
@@ -16,56 +13,16 @@ import {
   assertBeginOptionsRpIdMatchesCanonicalDomain,
   enrichWebauthnRpIdHashErrorMessage,
   formatWebauthnBrowserError,
-  narrowAuthenticationOptionsToCredential,
-  prepareAuthenticationOptionsForGet,
-  webauthnBeginOptionsToObject,
+  prepareDiscoverableAuthenticationOptions,
 } from '../webauthn/passkey'
-
-export type OnboardingPasskeyOption = {
-  credentialId: string
-  smartAccountAddress?: string
-}
 
 type PrefetchState = {
   kind: 'authentication'
   optionsJSON: unknown
 }
 
-function mergePasskeyOptions(
-  accounts: BackendSessionAccount[],
-  optionsJSON: unknown
-): OnboardingPasskeyOption[] {
-  const seen = new Set<string>()
-  const options: OnboardingPasskeyOption[] = []
-
-  const add = (credentialId: string | undefined, smartAccountAddress?: string) => {
-    const id = credentialId?.trim()
-    if (!id || seen.has(id)) return
-    seen.add(id)
-    options.push({ credentialId: id, smartAccountAddress })
-  }
-
-  for (const account of accounts) {
-    add(account.credentialId, account.smartAccountAddress)
-  }
-
-  const begin = webauthnBeginOptionsToObject(optionsJSON)
-  const allow = begin?.allowCredentials
-  if (Array.isArray(allow)) {
-    for (const cred of allow) {
-      if (!cred || typeof cred !== 'object') continue
-      const id = (cred as { id?: unknown }).id
-      if (typeof id === 'string') add(id)
-    }
-  }
-
-  return options
-}
-
 export function useOnboardingPasskeyAuthentication(active: boolean) {
   const prefetchRef = useRef<PrefetchState | null>(null)
-  const [passkeys, setPasskeys] = useState<OnboardingPasskeyOption[]>([])
-  const [selectedCredentialId, setSelectedCredentialId] = useState<string | null>(null)
   const [prefetchReady, setPrefetchReady] = useState(false)
   const [prefetchError, setPrefetchError] = useState<string | null>(null)
   const [prefetchNonce, setPrefetchNonce] = useState(0)
@@ -75,8 +32,6 @@ export function useOnboardingPasskeyAuthentication(active: boolean) {
   useEffect(() => {
     if (!active) {
       prefetchRef.current = null
-      setPasskeys([])
-      setSelectedCredentialId(null)
       setPrefetchReady(false)
       setPrefetchError(null)
       setActionError(null)
@@ -91,42 +46,18 @@ export function useOnboardingPasskeyAuthentication(active: boolean) {
 
     void (async () => {
       try {
-        const [backendRes, localRes, beginRes] = await Promise.all([
-          sendToBackground<undefined, BackendAccountsResponse>({
-            type: 'GET_BACKEND_ACCOUNTS',
-            payload: undefined,
-          }),
-          sendToBackground<undefined, GetAccountsResponse>({
-            type: 'GET_ACCOUNTS',
-            payload: undefined,
-          }),
-          sendToBackground<undefined, BackendWebauthnBeginResponse>({
-            type: 'PASSKEY_AUTH_BEGIN',
-            payload: undefined,
-          }),
-        ])
+        const beginRes = await sendToBackground<undefined, BackendWebauthnBeginResponse>({
+          type: 'PASSKEY_AUTH_BEGIN',
+          payload: undefined,
+        })
         if (cancelled) return
 
         if (!beginRes.ok) throw new Error(friendlyError(beginRes.error))
 
-        const optionsJSON = prepareAuthenticationOptionsForGet(beginRes.data?.options)
+        const optionsJSON = prepareDiscoverableAuthenticationOptions(beginRes.data?.options)
         assertBeginOptionsRpIdMatchesCanonicalDomain(optionsJSON)
 
-        const mergedAccounts: BackendSessionAccount[] = [
-          ...(backendRes.ok ? (backendRes.data?.accounts ?? []) : []),
-          ...(localRes.ok ? (localRes.data?.accounts ?? []) : [])
-            .filter((a) => a.mode === 'passkey' && a.passkeyCredentialId)
-            .map((a) => ({
-              credentialId: a.passkeyCredentialId,
-              smartAccountAddress: a.smartAccountAddress,
-            })),
-        ]
-
         prefetchRef.current = { kind: 'authentication', optionsJSON }
-
-        const listed = mergePasskeyOptions(mergedAccounts, optionsJSON)
-        setPasskeys(listed)
-        setSelectedCredentialId(listed.length === 1 ? listed[0]!.credentialId : null)
 
         if (!cancelled) setPrefetchReady(true)
       } catch (e) {
@@ -156,10 +87,7 @@ export function useOnboardingPasskeyAuthentication(active: boolean) {
         )
       }
 
-      const narrowed = selectedCredentialId
-        ? narrowAuthenticationOptionsToCredential(pre.optionsJSON, selectedCredentialId)
-        : pre.optionsJSON
-      const optionsJSON = prepareAuthenticationOptionsForGet(narrowed)
+      const optionsJSON = pre.optionsJSON
       assertBeginOptionsRpIdMatchesCanonicalDomain(optionsJSON)
 
       let assertion: Awaited<ReturnType<typeof startAuthentication>>
@@ -210,12 +138,9 @@ export function useOnboardingPasskeyAuthentication(active: boolean) {
     } finally {
       setBusy(false)
     }
-  }, [prefetchError, prefetchReady, selectedCredentialId])
+  }, [prefetchError, prefetchReady])
 
   return {
-    passkeys,
-    selectedCredentialId,
-    setSelectedCredentialId,
     prefetchReady,
     prefetchError,
     actionError,

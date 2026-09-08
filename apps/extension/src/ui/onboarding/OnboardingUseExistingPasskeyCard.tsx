@@ -5,12 +5,8 @@ import {
   OnboardingPrimaryButton,
   OnboardingSecondaryButton,
 } from './components/OnboardingCardButtons'
-import type { OnboardingPasskeyOption } from './useOnboardingPasskeyAuthentication'
 
 export function OnboardingUseExistingPasskeyCard({
-  passkeys,
-  selectedCredentialId,
-  onSelectPasskey,
   prefetchReady,
   prefetchError,
   actionError,
@@ -18,9 +14,6 @@ export function OnboardingUseExistingPasskeyCard({
   onAuthenticate,
   onGoBack,
 }: {
-  passkeys: OnboardingPasskeyOption[]
-  selectedCredentialId: string | null
-  onSelectPasskey: (credentialId: string) => void
   prefetchReady: boolean
   prefetchError: string | null
   actionError: string | null
@@ -29,9 +22,7 @@ export function OnboardingUseExistingPasskeyCard({
   onGoBack: () => void
 }) {
   const errorMessage = actionError ?? prefetchError
-  const needsSelection = passkeys.length > 0
-  const canAuthenticate =
-    prefetchReady && !busy && (!needsSelection || selectedCredentialId !== null)
+  const canAuthenticate = prefetchReady && !busy
   const primaryLabel = !prefetchReady ? 'Preparing…' : busy ? 'Authenticating…' : 'Authenticate'
 
   return (
@@ -70,28 +61,6 @@ export function OnboardingUseExistingPasskeyCard({
           </div>
 
           <div className="flex min-h-0 w-full flex-1 flex-col gap-3 overflow-x-clip overflow-y-auto">
-            {passkeys.map((passkey) => {
-              const selected = passkey.credentialId === selectedCredentialId
-              return (
-                <button
-                  key={passkey.credentialId}
-                  type="button"
-                  onClick={() => onSelectPasskey(passkey.credentialId)}
-                  className={[
-                    'w-full rounded-[14px] bg-[#201f1e] p-3 text-left',
-                    selected ? 'border border-[#f0a300]' : 'border border-transparent',
-                  ].join(' ')}
-                >
-                  <p className="text-[16px] font-semibold leading-[1.31] tracking-[-0.16px] text-[#fcfcfc]">
-                    Passkey Created
-                  </p>
-                  <p className="mt-1.5 text-[14px] font-normal leading-[1.34] tracking-[-0.28px] text-[#b3b3b3]">
-                    Use your device&apos;s fingerprint or face recognition
-                  </p>
-                </button>
-              )
-            })}
-
             {errorMessage ? (
               <p className="text-center text-[14px] leading-[1.34] tracking-[-0.28px] text-[#b3b3b3]">
                 {errorMessage}

@@ -14,6 +14,7 @@ import {
   nextPasskeyRegistrationDisplayName,
   prepareRegistrationOptionsForCreate,
   prepareAuthenticationOptionsForGet,
+  prepareDiscoverableAuthenticationOptions,
   readAuthenticatorRpIdHashHexFromCredentialJSON,
   buildWebauthnSigDataXdrHex,
   passkeyAuthenticationOptionsForAuthDigest,
@@ -384,5 +385,53 @@ describe('webauthn/passkey', () => {
       allowCredentials: [{ id: 'cred-1', type: 'public-key' }],
     }) as Record<string, unknown>
     expect(prepared.allowCredentials).toEqual([{ id: 'cred-1', type: 'public-key' }])
+  })
+
+  // Login must stay discoverable: a session-scoped allowlist makes Chrome pick a
+  // provider itself (iCloud Keychain on macOS) and hides every other passkey for
+  // this RP, including ones created in the Latch mobile app.
+  it('prepareDiscoverableAuthenticationOptions drops allowCredentials and hints', () => {
+    const prepared = prepareDiscoverableAuthenticationOptions({
+      challenge: 'c',
+      rpId: CANONICAL_RP,
+      allowCredentials: [{ id: 'cred-1', type: 'public-key', transports: ['internal'] }],
+      hints: ['client-device'],
+    }) as Record<string, unknown>
+    expect(prepared).not.toHaveProperty('allowCredentials')
+    expect(prepared).not.toHaveProperty('hints')
+    expect(prepared.rpId).toBe(CANONICAL_RP)
+    expect(prepared.challenge).toBe('c')
+    expect(prepared.userVerification).toBe('required')
+  })
+
+  it('prepareDiscoverableAuthenticationOptions accepts options that carry no allowlist', () => {
+    const prepared = prepareDiscoverableAuthenticationOptions({
+      challenge: 'c',
+      rpId: CANONICAL_RP,
+      userVerification: 'preferred',
+    }) as Record<string, unknown>
+    expect(prepared).not.toHaveProperty('allowCredentials')
+    expect(prepared.userVerification).toBe('preferred')
+  })
+
+  it('prepareDiscoverableAuthenticationOptions parses a JSON-string begin payload', () => {
+    const prepared = prepareDiscoverableAuthenticationOptions(
+      JSON.stringify({
+        challenge: 'c',
+        rpId: CANONICAL_RP,
+        allowCredentials: [{ id: 'cred-1', type: 'public-key' }],
+      })
+    ) as Record<string, unknown>
+    expect(prepared).not.toHaveProperty('allowCredentials')
+    expect(prepared.rpId).toBe(CANONICAL_RP)
+  })
+
+  // Signing pins the active account's credential; only login goes discoverable.
+  it('passkeyAuthenticationOptionsForAuthDigest survives discoverable-login changes', () => {
+    const digest = '21e5a6e8c3d0940bdd4f01ba07ce73bd5898c8116911d444ed7e4a4b631ee975'
+    const signing = prepareAuthenticationOptionsForGet(
+      passkeyAuthenticationOptionsForAuthDigest({ credentialId: 'cred-id', authDigestHex: digest })
+    ) as Record<string, unknown>
+    expect(signing.allowCredentials).toEqual([{ id: 'cred-id', type: 'public-key' }])
   })
 })

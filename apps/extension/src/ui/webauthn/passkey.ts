@@ -727,3 +727,29 @@ export function prepareAuthenticationOptionsForGet(options: unknown): unknown {
   }
   return out
 }
+
+/**
+ * Normalize server begin options for a **discoverable** `startAuthentication`
+ * ("use existing passkey" / login), dropping `allowCredentials` and `hints`.
+ *
+ * `/api/webauthn/authentication/begin` allowlists only the credentials of the
+ * current cookie session. A non-empty list means "these ids only": Chrome then
+ * hands the ceremony straight to whichever provider holds one (iCloud Keychain
+ * on macOS) instead of offering the provider chooser, and every other passkey
+ * for this RP — Google Password Manager, one created in the Latch mobile app —
+ * is filtered out even though the API can still complete it (the Latch API's
+ * authentication finish adopts credentials it only knows from the shared
+ * passkey index). Omitting the field is what makes the OS sheet the picker.
+ *
+ * Login only. Signing / approve / v1 auth must keep their pinned single-id
+ * `allowCredentials` so the prompt resolves the active account's passkey — use
+ * {@link prepareAuthenticationOptionsForGet} there.
+ */
+export function prepareDiscoverableAuthenticationOptions(options: unknown): unknown {
+  const prepared = prepareAuthenticationOptionsForGet(options)
+  if (!prepared || typeof prepared !== 'object' || Array.isArray(prepared)) return prepared
+  const out = { ...(prepared as Record<string, unknown>) }
+  delete out.allowCredentials
+  delete out.hints
+  return out
+}

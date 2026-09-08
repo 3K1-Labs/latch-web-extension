@@ -27,7 +27,7 @@ import {
   assertRegistrationCeremonyForFinish,
   enrichWebauthnRpIdHashErrorMessage,
   nextPasskeyAccountDisplayName,
-  prepareAuthenticationOptionsForGet,
+  prepareDiscoverableAuthenticationOptions,
   prepareRegistrationOptionsForCreate,
 } from '../webauthn/passkey'
 import { runWebauthnCredential } from '../webauthn/runWebauthnCredential'
@@ -146,7 +146,7 @@ export function AccountRouteViews({
           })
           if (cancelled) return
           if (!begin.ok) throw new Error(friendlyError(begin.error))
-          const optionsJSON = prepareAuthenticationOptionsForGet(begin.data?.options)
+          const optionsJSON = prepareDiscoverableAuthenticationOptions(begin.data?.options)
           assertBeginOptionsRpIdMatchesCanonicalDomain(optionsJSON)
           passkeyPrefetchRef.current = { kind: 'authentication', optionsJSON }
         }
