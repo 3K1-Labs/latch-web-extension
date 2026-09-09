@@ -232,19 +232,37 @@ export function useAccountsHydration({
       payload: undefined,
     })
     if (!res.ok || !res.data) return undefined
-    setAccounts(res.data.accounts)
-    setActiveAccountId(res.data.activeAccountId)
-    setActiveAccountHasMnemonicVault(Boolean(res.data.activeAccountHasMnemonicVault))
-    setActiveAccountMnemonicSignerLoaded(Boolean(res.data.activeAccountMnemonicSignerLoaded))
+    return applyAccountsSnapshot({
+      accounts: res.data.accounts,
+      activeAccountId: res.data.activeAccountId,
+      activeAccountHasMnemonicVault: res.data.activeAccountHasMnemonicVault,
+      activeAccountMnemonicSignerLoaded: res.data.activeAccountMnemonicSignerLoaded,
+    })
+  }
+
+  /** Apply a known accounts list without a second GET (e.g. after DELETE_ACCOUNT / LOGOUT). */
+  function applyAccountsSnapshot(snapshot: {
+    accounts: StoredAccount[]
+    activeAccountId?: string
+    activeAccountHasMnemonicVault?: boolean
+    activeAccountMnemonicSignerLoaded?: boolean
+  }): { accounts: StoredAccount[]; needsMnemonicUnlock: boolean } {
+    setAccounts(snapshot.accounts)
+    setActiveAccountId(snapshot.activeAccountId)
+    setActiveAccountHasMnemonicVault(Boolean(snapshot.activeAccountHasMnemonicVault))
+    setActiveAccountMnemonicSignerLoaded(Boolean(snapshot.activeAccountMnemonicSignerLoaded))
     setAccountsLoadSucceeded(true)
     setAccountsHydrated(true)
+    if (snapshot.accounts.length === 0) {
+      setSetupState('new')
+    }
     const locked = needsMnemonicUnlockFromAccounts(
-      res.data.accounts,
-      res.data.activeAccountId,
-      res.data.activeAccountHasMnemonicVault,
-      res.data.activeAccountMnemonicSignerLoaded
+      snapshot.accounts,
+      snapshot.activeAccountId,
+      snapshot.activeAccountHasMnemonicVault,
+      snapshot.activeAccountMnemonicSignerLoaded
     )
-    return { accounts: res.data.accounts, needsMnemonicUnlock: locked }
+    return { accounts: snapshot.accounts, needsMnemonicUnlock: locked }
   }
 
   const syncMultisigAccounts = useCallback(async () => {
@@ -281,6 +299,7 @@ export function useAccountsHydration({
     needsMnemonicUnlock,
     persistSetupHasAccount,
     refreshAccounts,
+    applyAccountsSnapshot,
     syncMultisigAccounts,
   }
 }

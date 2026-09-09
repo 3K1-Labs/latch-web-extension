@@ -195,7 +195,8 @@ export async function getWebauthnSession(
   return undefined
 }
 
-export async function captureSidAfterBegin(
+/** Persist `sid` from a Set-Cookie response (begin or authentication finish rotation). */
+export async function captureSid(
   baseUrl: string,
   res: Response
 ): Promise<string | undefined> {
@@ -207,6 +208,9 @@ export async function captureSidAfterBegin(
   sid = await readSidCookieWithRetry(baseUrl, 12, 50)
   return sid
 }
+
+/** @deprecated Prefer {@link captureSid} — same behavior. */
+export const captureSidAfterBegin = captureSid
 
 export async function webauthnSessionCookieHeader(
   expectedKind: WebauthnSessionKind

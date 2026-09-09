@@ -40,7 +40,7 @@ import { FundScreen } from './screens/fund/FundScreen'
 import { buildTransactionDetail } from './lib/historyFormat'
 import type { TransactionDetailVm } from './types/transaction-detail'
 import { friendlyError, sendToBackground } from './lib/backgroundClient'
-import { openSidePanel, setDefaultSurface } from './lib/uiSurface'
+import { closeWalletSurface, openSidePanel, setDefaultSurface } from './lib/uiSurface'
 import {
   MULTISIG_ROUTES,
   ROUTES_GATED_BY_MNEMONIC_UNLOCK,
@@ -89,6 +89,7 @@ export function LatchRoot({ surface }: { surface: Surface }) {
     needsMnemonicUnlock,
     persistSetupHasAccount,
     refreshAccounts,
+    applyAccountsSnapshot,
   } = useAccountsHydration({ route, setRoute })
 
   const {
@@ -212,6 +213,20 @@ export function LatchRoot({ surface }: { surface: Surface }) {
     route !== 'joinMultisig' &&
     !loading
 
+  /** Open full-tab onboarding, then dismiss this popup/side panel so the stub setup screen never sticks. */
+  async function exitToOnboardingTab() {
+    clearDappPendingRef.current()
+    setPage('main')
+    setRoute('home')
+    onboardingTabOpenedRef.current = true
+    try {
+      await openOnboardingTab()
+    } catch {
+      // Tab open is best-effort; still try to close this surface.
+    }
+    await closeWalletSurface(surface)
+  }
+
   async function logout() {
     setError(null)
     setLoading('Logging out…')
@@ -221,15 +236,9 @@ export function LatchRoot({ surface }: { surface: Surface }) {
         payload: undefined,
       })
       if (!res.ok) throw new Error(friendlyError(res.error))
-      const refreshed = await refreshAccounts()
-      clearDappPendingRef.current()
-      setPage('main')
-      if ((refreshed?.accounts.length ?? 0) > 0) {
-        setRoute(resolveMainRoute({ needsMnemonicUnlock: refreshed?.needsMnemonicUnlock ?? false }))
-      } else {
-        onboardingTabOpenedRef.current = false
-        void openOnboardingTab().catch(() => {})
-      }
+      applyAccountsSnapshot({ accounts: [], activeAccountId: undefined })
+      setLoading(null)
+      await exitToOnboardingTab()
     } finally {
       setLoading(null)
     }
@@ -241,14 +250,19 @@ export function LatchRoot({ surface }: { surface: Surface }) {
       type: 'DELETE_ACCOUNT',
       payload: { accountId },
     })
-    if (!res.ok) throw new Error(friendlyError(res.error))
-    const refreshed = await refreshAccounts()
-    if ((refreshed?.accounts.length ?? 0) === 0) {
-      clearDappPendingRef.current()
-      setPage('main')
-      onboardingTabOpenedRef.current = false
-      void openOnboardingTab().catch(() => {})
+    if (!res.ok || !res.data) throw new Error(friendlyError(res.error))
+    // Apply the delete payload immediately so View Accounts drops the row without
+    // waiting on a follow-up GET (mnemonic unlock flags refreshed below when needed).
+    applyAccountsSnapshot({
+      accounts: res.data.accounts,
+      activeAccountId: res.data.activeAccountId,
+    })
+    if (res.data.removedLastAccount || res.data.accounts.length === 0) {
+      await exitToOnboardingTab()
+      return
     }
+    // Refresh mnemonic vault / signer flags for the new active account when needed.
+    await refreshAccounts()
   }
 
   const containerClass =
@@ -584,11 +598,7 @@ export function LatchRoot({ surface }: { surface: Surface }) {
                           await refreshAccounts()
                         }}
                         onClose={() => setPage('main')}
-                        onLogout={() =>
-                          void logout().catch((e) =>
-                            setError(e instanceof Error ? e.message : String(e))
-                          )
-                        }
+                        onLogout={logout}
                       />
                     </div>
                   </>

@@ -338,6 +338,11 @@ export interface DeleteAccountResponse {
   removedLastAccount: boolean
 }
 
+/** Optional filter for `GET /api/accounts?credentialId=`. */
+export interface GetBackendAccountsRequest {
+  credentialId?: string
+}
+
 export interface CreateOrConnectFreighterRequest {
   gAddress: string
   /** Stellar network; omit → API defaults to testnet. */
@@ -892,7 +897,7 @@ export type BackgroundRequestPayloadByType = {
   PASSKEY_REG_FINISH: BackendWebauthnRegistrationFinishRequest
   PASSKEY_AUTH_BEGIN: undefined
   PASSKEY_AUTH_FINISH: BackendWebauthnAuthenticationFinishRequest
-  GET_BACKEND_ACCOUNTS: undefined
+  GET_BACKEND_ACCOUNTS: GetBackendAccountsRequest | undefined
   RENAME_ACCOUNT: { accountId: string; label?: string }
   DELETE_ACCOUNT: DeleteAccountRequest
   GET_DAPP_PERMISSIONS: GetDappPermissionsRequest

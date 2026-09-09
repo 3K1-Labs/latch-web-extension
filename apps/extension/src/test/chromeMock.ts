@@ -82,6 +82,9 @@ export function createChromeMock() {
       async update() {},
     },
     windows: {
+      async getCurrent() {
+        return { id: 1 }
+      },
       async getLastFocused() {
         return { id: 1 }
       },
@@ -89,6 +92,7 @@ export function createChromeMock() {
     },
     sidePanel: {
       async open() {},
+      async close() {},
       async setOptions() {},
       async setPanelBehavior() {},
     },

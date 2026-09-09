@@ -613,30 +613,6 @@ export async function clearSession() {
   ])
 }
 
-export async function disconnectSessionForLogoutDev() {
-  const network = await getActiveNetwork()
-  const res = await chrome.storage.local.get([
-    STORAGE_KEYS.activeAccountIdByNetwork,
-    STORAGE_KEYS.setupStateByNetwork,
-  ])
-  const activeByNetwork =
-    (res[STORAGE_KEYS.activeAccountIdByNetwork] as ActiveIdByNetwork | undefined) ?? {}
-  const setupByNetwork =
-    (res[STORAGE_KEYS.setupStateByNetwork] as SetupStateByNetwork | undefined) ?? {}
-
-  await chrome.storage.local.set({
-    [STORAGE_KEYS.activeAccountIdByNetwork]: { ...activeByNetwork, [network]: undefined },
-    [STORAGE_KEYS.setupStateByNetwork]: { ...setupByNetwork, [network]: 'new' },
-  })
-  await chrome.storage.local.remove([
-    STORAGE_KEYS.legacyAccountPublicKey,
-    STORAGE_KEYS.dappPermissions,
-    STORAGE_KEYS.pendingDappRequests,
-    STORAGE_KEYS.activeAccountId,
-    STORAGE_KEYS.setupState,
-  ])
-}
-
 /** Reset migration latch for tests. */
 export function resetAccountsPartitionMigrationForTests(): void {
   accountsMigratePromise = null

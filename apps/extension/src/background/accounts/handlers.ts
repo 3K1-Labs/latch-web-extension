@@ -6,6 +6,7 @@ import type {
   DeleteAccountRequest,
   DeleteAccountResponse,
   GetAccountsResponse,
+  GetBackendAccountsRequest,
   ImportMnemonicAccountRequest,
   SetActiveAccountRequest,
   SetSetupStateRequest,
@@ -41,8 +42,8 @@ import {
 import { deriveStellarKeypairFromMnemonic } from '../stellarMnemonic'
 import {
   createAccount,
+  clearSession,
   deleteAccount,
-  disconnectSessionForLogoutDev,
   getAccounts,
   removeRemovedAccountAddress,
   renameAccount,
@@ -71,11 +72,10 @@ export async function tryHandleAccountsMessage(
 
     case 'LOGOUT': {
       clearMnemonicSessionKeys()
-      // Without this the API `sid` cookie outlives logout, so the next call is
-      // still the same session user and re-imports their whole account list.
+      // Wipe local wallets + API sid so the next cold start is a fresh install.
+      // On-chain accounts are untouched; users re-add via passkey login / Add existing.
       await clearLatchApiSession()
-      await disconnectSessionForLogoutDev()
-      await ensureSetupStateMatchesAccounts()
+      await clearSession()
       sendResponse(ok())
       return true
     }
@@ -202,7 +202,10 @@ export async function tryHandleAccountsMessage(
     }
 
     case 'GET_BACKEND_ACCOUNTS': {
-      const data = await getBackendAccounts()
+      const req = (message.payload ?? {}) as GetBackendAccountsRequest
+      const data = await getBackendAccounts(
+        req.credentialId ? { credentialId: req.credentialId } : undefined
+      )
       sendResponse(ok(data))
       return true
     }
@@ -224,9 +227,9 @@ export async function tryHandleAccountsMessage(
         })
       }
 
-      // Only the credential that just completed the ceremony is persisted.
-      // `data.accounts` is every smart account on the API session user, which
-      // can include wallets from other passkeys that this login did not prove.
+      // Persist only the credential that completed the ceremony. Backend now scopes
+      // `data.accounts` to the passkey owner, but we still keep the stricter
+      // single-credential import so this install only stores what this login proved.
       const { account, activeAccountId } = await createAccount({
         mode: 'passkey',
         smartAccountAddress: data.smartAccountAddress,

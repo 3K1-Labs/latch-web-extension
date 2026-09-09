@@ -11,11 +11,12 @@ vi.mock('../actionBehavior', () => ({
 
 const clearLatchApiSession = vi.fn()
 const passkeyAuthenticationFinish = vi.fn()
+const getBackendAccounts = vi.fn()
 vi.mock('../backend', () => ({
   clearLatchApiSession: (...a: unknown[]) => clearLatchApiSession(...a),
   createOrConnectPasskey: vi.fn(),
   ensureFreighterSmartAccountDeployed: vi.fn(),
-  getBackendAccounts: vi.fn(),
+  getBackendAccounts: (...a: unknown[]) => getBackendAccounts(...a),
   passkeyAuthenticationBegin: vi.fn(),
   passkeyAuthenticationFinish: (...a: unknown[]) => passkeyAuthenticationFinish(...a),
   passkeyRegistrationBegin: vi.fn(),
@@ -47,13 +48,13 @@ vi.mock('../stellarMnemonic', () => ({ deriveStellarKeypairFromMnemonic: vi.fn()
 
 const createAccount = vi.fn()
 const deleteAccount = vi.fn()
-const disconnectSessionForLogoutDev = vi.fn()
+const clearSession = vi.fn()
 const getAccounts = vi.fn()
 const removeRemovedAccountAddress = vi.fn()
 vi.mock('../storage', () => ({
   createAccount: (...a: unknown[]) => createAccount(...a),
   deleteAccount: (...a: unknown[]) => deleteAccount(...a),
-  disconnectSessionForLogoutDev: (...a: unknown[]) => disconnectSessionForLogoutDev(...a),
+  clearSession: (...a: unknown[]) => clearSession(...a),
   getAccounts: (...a: unknown[]) => getAccounts(...a),
   removeRemovedAccountAddress: (...a: unknown[]) => removeRemovedAccountAddress(...a),
   renameAccount: vi.fn(),
@@ -160,7 +161,7 @@ describe('tryHandleAccountsMessage', () => {
   })
 
   describe('LOGOUT', () => {
-    it('clears the API session cookie so the next call is not the same session user', async () => {
+    it('clears the API session and wipes local accounts so the next call is a fresh install', async () => {
       const sendResponse = vi.fn()
       const handled = await tryHandleAccountsMessage(
         { type: 'LOGOUT', payload: undefined },
@@ -171,7 +172,24 @@ describe('tryHandleAccountsMessage', () => {
       expect(handled).toBe(true)
       expect(clearLatchApiSession).toHaveBeenCalledTimes(1)
       expect(clearMnemonicSessionKeys).toHaveBeenCalledTimes(1)
-      expect(disconnectSessionForLogoutDev).toHaveBeenCalledTimes(1)
+      expect(clearSession).toHaveBeenCalledTimes(1)
+      expect(ensureSetupStateMatchesAccounts).not.toHaveBeenCalled()
+      expect(sendResponse).toHaveBeenCalledWith(ok())
+    })
+  })
+
+  describe('GET_BACKEND_ACCOUNTS', () => {
+    it('threads optional credentialId to getBackendAccounts', async () => {
+      getBackendAccounts.mockResolvedValue({ accounts: [] })
+      const sendResponse = vi.fn()
+      const handled = await tryHandleAccountsMessage(
+        { type: 'GET_BACKEND_ACCOUNTS', payload: { credentialId: 'cred-a' } },
+        sendResponse,
+        ok
+      )
+      expect(handled).toBe(true)
+      expect(getBackendAccounts).toHaveBeenCalledWith({ credentialId: 'cred-a' })
+      expect(sendResponse).toHaveBeenCalledWith(ok({ accounts: [] }))
     })
   })
 

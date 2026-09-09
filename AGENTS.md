@@ -132,8 +132,9 @@ Rules to preserve:
 
 - **`PASSKEY_AUTH_FINISH` persists only the credential that completed the ceremony.** Never loop over `data.accounts` and upsert siblings — that list is every account on the cookie user.
 - **Multisig sync requires a local signer.** `syncLocalMultisigAccountsFromBackend` imports a listed wallet only when a member matches a local passkey/seed (`remoteMultisigMatchesLocalSigner`); creator-only rows are skipped. With no local signer it imports nothing.
-- **Empty account store clears `sid`** (fresh install or last account removed), as does `LOGOUT`. Use `clearLatchApiSession()`.
-- **Removal is local only.** `DELETE_ACCOUNT` drops the `StoredAccount` and records the address in the per-network denylist (`latch.removedAccounts.byNetwork`) so sync cannot resurrect it. It never leaves the on-chain wallet or removes a multisig signer. An explicit re-add clears the denylist entry.
+- **Empty account store clears `sid`** (fresh install or last account removed). Use `clearLatchApiSession()`.
+- **`LOGOUT` is a full local wipe:** `clearLatchApiSession()` plus `clearSession()` (all networks' accounts, vaults, setup, denylist). On-chain wallets are untouched. UI confirms, then returns to onboarding.
+- **Removal is local only.** `DELETE_ACCOUNT` drops the `StoredAccount` and records the address in the per-network denylist (`latch.removedAccounts.byNetwork`) so sync cannot resurrect it. It never leaves the on-chain wallet or removes a multisig signer. An explicit re-add clears the denylist entry. The UI applies the delete response accounts list immediately so View Accounts updates without waiting on a follow-up GET.
 
 ### WebAuthn / passkey (Chrome extension)
 

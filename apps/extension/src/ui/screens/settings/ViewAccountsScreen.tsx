@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
 
 import type { AccountMode } from '@latch/types'
@@ -145,6 +145,11 @@ export function ViewAccountsScreen({
   const [removing, setRemoving] = useState(false)
   const [removeError, setRemoveError] = useState<string | undefined>(undefined)
   const canSave = selectedAccountId !== activeAccountId && selectedAccountId.length > 0
+
+  useEffect(() => {
+    if (accounts.some((a) => a.id === selectedAccountId)) return
+    setSelectedAccountId(activeAccountId ?? accounts[0]?.id ?? '')
+  }, [accounts, activeAccountId, selectedAccountId])
 
   async function confirmRemoval() {
     if (!pendingRemoval) return

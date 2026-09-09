@@ -10,7 +10,7 @@ import { latchApiBaseUrl } from './config'
 import { latchFetchAbsoluteWithResponse } from './client'
 import { normalizeWebauthnCredentialForApi } from './webauthnCredential'
 import {
-  captureSidAfterBegin,
+  captureSid,
   clearWebauthnSession,
   persistWebauthnCeremony,
   webauthnSessionCookieHeader,
@@ -96,7 +96,7 @@ async function passkeyBegin(
       headers: chromeExtensionHeaders(),
     }
   )
-  const sid = await captureSidAfterBegin(baseUrl, res)
+  const sid = await captureSid(baseUrl, res)
   await persistWebauthnCeremony(kind, {
     sid,
     challenge: challengeFromBeginOptions(data?.options),
@@ -112,7 +112,7 @@ async function passkeyFinish<TRes>(
   const baseUrl = latchApiBaseUrl()
   const cookieHeaders = await webauthnSessionCookieHeader(kind)
   try {
-    const { data } = await latchFetchAbsoluteWithResponse<TRes>(`${baseUrl}${path}`, {
+    const { res, data } = await latchFetchAbsoluteWithResponse<TRes>(`${baseUrl}${path}`, {
       method: 'POST',
       body: await webauthnFinishBody(req, kind),
       headers: {
@@ -120,6 +120,10 @@ async function passkeyFinish<TRes>(
         ...cookieHeaders,
       },
     })
+    // authentication/finish may rotate sid onto the passkey owner; persist immediately.
+    if (kind === 'authentication') {
+      await captureSid(baseUrl, res)
+    }
     return data
   } finally {
     await clearWebauthnSession()

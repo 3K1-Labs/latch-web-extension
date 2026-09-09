@@ -219,6 +219,11 @@ export function resolveRemoteMemberId(
 ): string | undefined {
   const direct = remote.memberId?.trim()
   if (direct) return direct
+  // After login-time member re-link, memberId should always be populated for
+  // signable wallets. A blank value is unexpected — keep fallbacks but surface it.
+  console.warn('[latch:multisig] remote.memberId blank; falling back', {
+    smartAccountAddress: remote.smartAccountAddress,
+  })
   const fromInvite = inviteMemberId?.trim()
   if (fromInvite) return fromInvite
   return findMemberIdForUser(remote.members, localAccounts)
