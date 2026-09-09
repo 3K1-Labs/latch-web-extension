@@ -196,10 +196,7 @@ export async function getWebauthnSession(
 }
 
 /** Persist `sid` from a Set-Cookie response (begin or authentication finish rotation). */
-export async function captureSid(
-  baseUrl: string,
-  res: Response
-): Promise<string | undefined> {
+export async function captureSid(baseUrl: string, res: Response): Promise<string | undefined> {
   let sid = extractSidFromFetchResponse(res)
   if (sid) {
     await setLatchSidCookie(baseUrl, sid)
