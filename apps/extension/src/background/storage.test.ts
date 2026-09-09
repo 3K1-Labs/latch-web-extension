@@ -139,7 +139,7 @@ describe('background/storage', () => {
     it('reports removedLastAccount and resets setup state when the list empties', async () => {
       await createAccount({
         mode: 'passkey',
-        smartAccountAddress: 'CONLY',
+        smartAccountAddress: 'CSINGLE',
         passkeyCredentialId: 'cred-only',
         passkeyKeyDataHex: 'cc',
       })
