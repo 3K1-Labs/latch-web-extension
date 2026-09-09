@@ -9,6 +9,7 @@ import type {
 } from '@latch/types'
 
 import {
+  clearLatchApiSession,
   getActiveMultisigDraft,
   getMultisigDraft,
   getMultisigDraftByInviteToken,
@@ -27,6 +28,7 @@ import {
   getAccounts,
   getMultisigDraftMeta,
   getMultisigPendingInvites,
+  getRemovedAccountAddresses,
   removeMultisigPendingInvite,
   setActiveAccount,
   upsertMultisigPendingInvite,
@@ -37,10 +39,12 @@ import {
   draftMembersToSigners,
   isRegisterDuplicateError,
   matchPendingInviteForRemoteAccount,
+  localSignerAccounts,
   multisigLocalAccountNeedsUpdate,
   normalizeListMultisigAccountsResponse,
   predictAddress,
   predictSalt,
+  remoteMultisigMatchesLocalSigner,
   resolveRemoteMemberId,
 } from './syncHelpers'
 
@@ -51,6 +55,8 @@ type SyncContext = {
   updated: boolean
   pendingInvites: MultisigPendingInvite[]
   passkeyCredentialIds: Set<string>
+  /** Addresses the user removed on this install; never re-import them. */
+  removedAddresses: Set<string>
 }
 
 /** Normalize cached member snapshots (draft API or unwired cosign) for register+local sync. */
@@ -207,6 +213,10 @@ async function ensureLocalMultisigAccount(
   const existing = ctx.localAccounts.find(
     (a) => a.mode === 'multisig' && a.smartAccountAddress === addr
   )
+  // Backstop for every sync path: a wallet the user removed here stays removed
+  // until they add it back explicitly.
+  if (!existing && ctx.removedAddresses.has(addr)) return
+
   // Remote list responses may omit `label` (or older deployments might not have one),
   // but we still want to preserve any local user-assigned label.
   const desiredLabel = args.label.trim()
@@ -553,12 +563,20 @@ async function importListedRemoteAccounts(ctx: SyncContext): Promise<void> {
   for (const remote of listed) {
     const addr = remote.smartAccountAddress?.trim()
     if (!addr) continue
+    if (ctx.removedAddresses.has(addr)) continue
 
     const matchedInvite = matchPendingInviteForRemoteAccount(
       remote,
       ctx.pendingInvites,
       ctx.passkeyCredentialIds
     )
+
+    // Listed-for-this-session is not proof of membership: the API also returns
+    // wallets the session user only created. Require a signer match, or a
+    // pending invite this install started, before importing.
+    if (!matchedInvite && !remoteMultisigMatchesLocalSigner(remote, ctx.localAccounts)) {
+      continue
+    }
 
     const memberId = resolveRemoteMemberId(
       remote,
@@ -598,6 +616,7 @@ export async function syncLocalMultisigAccountsFromBackend(opts?: {
   const passkeyCredentialIds = passkeyCredentialIdsFromAccounts(localAccounts)
   const pendingInvites = await getMultisigPendingInvites()
   const draftMeta = await getMultisigDraftMeta()
+  const removedAddresses = new Set(await getRemovedAccountAddresses())
 
   const ctx: SyncContext = {
     localAccounts,
@@ -606,6 +625,24 @@ export async function syncLocalMultisigAccountsFromBackend(opts?: {
     updated: false,
     pendingInvites,
     passkeyCredentialIds,
+    removedAddresses,
+  }
+
+  // No local signer means nothing has proved who this user is (fresh install,
+  // or every account removed). A leftover API `sid` cookie would otherwise
+  // hand back the previous session user's wallets, so import nothing.
+  if (localSignerAccounts(localAccounts).length === 0) {
+    if (localAccounts.length === 0) {
+      // Fresh install or every account removed: drop the cookie now rather than
+      // letting the next request adopt the old session user's identity.
+      await clearLatchApiSession().catch(() => undefined)
+    }
+    return {
+      accounts: localAccounts,
+      activeAccountId,
+      created: [],
+      updated: false,
+    }
   }
 
   // Primary path: backend lists every deployed multisig for this session (owner + members).

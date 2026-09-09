@@ -2,7 +2,13 @@ import '../style.css'
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import type { GetSetupStateResponse, MultisigProposal, SetActiveAccountRequest } from '@latch/types'
+import type {
+  DeleteAccountRequest,
+  DeleteAccountResponse,
+  GetSetupStateResponse,
+  MultisigProposal,
+  SetActiveAccountRequest,
+} from '@latch/types'
 
 import { HistoryScreen } from './screens/history/HistoryScreen'
 import { HomeScreen } from './screens/HomeScreen'
@@ -226,6 +232,22 @@ export function LatchRoot({ surface }: { surface: Surface }) {
       }
     } finally {
       setLoading(null)
+    }
+  }
+
+  /** Removes the account from this install only; the wallet stays on-chain. */
+  async function deleteAccount(accountId: string) {
+    const res = await sendToBackground<DeleteAccountRequest, DeleteAccountResponse>({
+      type: 'DELETE_ACCOUNT',
+      payload: { accountId },
+    })
+    if (!res.ok) throw new Error(friendlyError(res.error))
+    const refreshed = await refreshAccounts()
+    if ((refreshed?.accounts.length ?? 0) === 0) {
+      clearDappPendingRef.current()
+      setPage('main')
+      onboardingTabOpenedRef.current = false
+      void openOnboardingTab().catch(() => {})
     }
   }
 
@@ -512,6 +534,11 @@ export function LatchRoot({ surface }: { surface: Surface }) {
                           setPage('main')
                           setRoute('createMultisig')
                         }}
+                        onAddExistingMultisig={() => {
+                          setPage('main')
+                          setRoute('addExistingMultisig')
+                        }}
+                        onDeleteAccount={deleteAccount}
                         onOpenMultisigWallets={() => {
                           setPage('main')
                           setRoute('multisigWallets')

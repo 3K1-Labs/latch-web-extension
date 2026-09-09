@@ -53,6 +53,8 @@ export function SettingsScreen({
   onSelectAccount,
   onAccountsChanged,
   onCreateMultisig,
+  onAddExistingMultisig,
+  onDeleteAccount,
   onOpenMultisigWallets,
   onOpenMultisigProposals,
   pendingMultisigProposalCount,
@@ -75,6 +77,8 @@ export function SettingsScreen({
   onSelectAccount?: (accountId: string) => void
   onAccountsChanged?: () => void
   onCreateMultisig?: () => void
+  onAddExistingMultisig?: () => void
+  onDeleteAccount?: (accountId: string) => Promise<void>
   onOpenMultisigWallets?: () => void
   onOpenMultisigProposals?: () => void
   pendingMultisigProposalCount?: number
@@ -130,6 +134,10 @@ export function SettingsScreen({
           onBack={() => setView('menu')}
           onAccountsChanged={() => onAccountsChanged?.()}
           onCreateMultisig={() => onCreateMultisig?.()}
+          onAddExistingMultisig={() => onAddExistingMultisig?.()}
+          onDeleteAccount={async (accountId) => {
+            await onDeleteAccount?.(accountId)
+          }}
           onSave={(accountId) => {
             onSelectAccount?.(accountId)
             setView('menu')

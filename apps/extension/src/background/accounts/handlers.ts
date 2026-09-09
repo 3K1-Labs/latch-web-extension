@@ -3,6 +3,8 @@ import type {
   BackendWebauthnAuthenticationFinishRequest,
   BackendWebauthnRegistrationFinishRequest,
   CreateOrConnectPasskeyRequest,
+  DeleteAccountRequest,
+  DeleteAccountResponse,
   GetAccountsResponse,
   ImportMnemonicAccountRequest,
   SetActiveAccountRequest,
@@ -13,6 +15,7 @@ import type {
 import { ensureSetupStateMatchesAccounts, getSetupState, setSetupState } from '../actionBehavior'
 import { BackendError } from '../api/client'
 import {
+  clearLatchApiSession,
   createOrConnectPasskey,
   ensureFreighterSmartAccountDeployed,
   getBackendAccounts,
@@ -24,6 +27,7 @@ import {
 import { broadcastActiveAccountChanged } from '../dappProviderEvents'
 import type { OkFn } from '../messageResponse'
 import {
+  clearMnemonicSessionKeyForAccount,
   clearMnemonicSessionKeys,
   getMnemonicKeypair,
   registerMnemonicKeypair,
@@ -37,8 +41,10 @@ import {
 import { deriveStellarKeypairFromMnemonic } from '../stellarMnemonic'
 import {
   createAccount,
+  deleteAccount,
   disconnectSessionForLogoutDev,
   getAccounts,
+  removeRemovedAccountAddress,
   renameAccount,
   setActiveAccount,
 } from '../storage'
@@ -65,6 +71,9 @@ export async function tryHandleAccountsMessage(
 
     case 'LOGOUT': {
       clearMnemonicSessionKeys()
+      // Without this the API `sid` cookie outlives logout, so the next call is
+      // still the same session user and re-imports their whole account list.
+      await clearLatchApiSession()
       await disconnectSessionForLogoutDev()
       await ensureSetupStateMatchesAccounts()
       sendResponse(ok())
@@ -215,6 +224,9 @@ export async function tryHandleAccountsMessage(
         })
       }
 
+      // Only the credential that just completed the ceremony is persisted.
+      // `data.accounts` is every smart account on the API session user, which
+      // can include wallets from other passkeys that this login did not prove.
       const { account, activeAccountId } = await createAccount({
         mode: 'passkey',
         smartAccountAddress: data.smartAccountAddress,
@@ -222,15 +234,7 @@ export async function tryHandleAccountsMessage(
         passkeyKeyDataHex: data.keyDataHex,
       })
 
-      // Best-effort: attach other passkey accounts from session list (may not include keyDataHex).
-      for (const a of data.accounts ?? []) {
-        if (!a.smartAccountAddress || !a.credentialId) continue
-        await createAccount({
-          mode: 'passkey',
-          smartAccountAddress: a.smartAccountAddress,
-          passkeyCredentialId: a.credentialId,
-        })
-      }
+      await removeRemovedAccountAddress(data.smartAccountAddress)
 
       const accRes = await getAccounts()
       sendResponse(ok({ ...data, account, accounts: accRes.accounts, activeAccountId }))
@@ -241,6 +245,22 @@ export async function tryHandleAccountsMessage(
       const req = message.payload as { accountId: string; label?: string }
       await renameAccount(req)
       sendResponse(ok())
+      return true
+    }
+
+    case 'DELETE_ACCOUNT': {
+      const req = message.payload as DeleteAccountRequest
+      const result = await deleteAccount(req.accountId)
+      clearMnemonicSessionKeyForAccount(req.accountId)
+      if (result.removedLastAccount) {
+        // Nothing left to prove who this user is; drop the API session too so a
+        // later hydrate cannot re-import the old session user's wallets.
+        await clearLatchApiSession()
+      }
+      await ensureSetupStateMatchesAccounts()
+      await broadcastActiveAccountChanged()
+      const payload: DeleteAccountResponse = result
+      sendResponse(ok(payload))
       return true
     }
 

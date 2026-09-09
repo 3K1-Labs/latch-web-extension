@@ -40,6 +40,7 @@ import {
   removeMultisigPendingInvite,
   setMultisigDraftMeta,
 } from '../storage'
+import { addExistingMultisigAccount } from './addExistingAccount'
 import {
   ensureMultisigAccountRegisteredForSession,
   syncLocalMultisigAccountsFromBackend,
@@ -128,6 +129,12 @@ export async function tryHandleMultisigMessage(
     case 'MULTISIG_REGISTER_ACCOUNT': {
       const req = message.payload as import('@latch/types').RegisterMultisigAccountRequest
       const data = await registerMultisigAccount(req)
+      sendResponse(ok(data))
+      return true
+    }
+    case 'MULTISIG_ADD_EXISTING_ACCOUNT': {
+      const req = message.payload as import('@latch/types').AddExistingMultisigAccountRequest
+      const data = await addExistingMultisigAccount(req)
       sendResponse(ok(data))
       return true
     }

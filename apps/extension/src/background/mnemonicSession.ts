@@ -14,3 +14,7 @@ export function getMnemonicKeypair(accountId: string): Keypair | undefined {
 export function clearMnemonicSessionKeys() {
   mnemonicKeypairsByAccountId.clear()
 }
+
+export function clearMnemonicSessionKeyForAccount(accountId: string) {
+  mnemonicKeypairsByAccountId.delete(accountId)
+}

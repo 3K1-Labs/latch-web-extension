@@ -226,3 +226,16 @@ export async function clearWebauthnSession(): Promise<void> {
     // ignore
   }
 }
+
+/**
+ * Drop the Latch API session entirely (`sid` cookie + any in-flight ceremony).
+ *
+ * The API identifies callers by an anonymous `sid` cookie and mints a new user
+ * when it is absent, so a stale cookie makes a fresh install look like the
+ * previous session user and its whole account list. Call this on logout and
+ * whenever local storage holds no accounts.
+ */
+export async function clearLatchApiSession(): Promise<void> {
+  await clearWebauthnSession()
+  await clearLatchSidCookie(latchApiBaseUrl())
+}

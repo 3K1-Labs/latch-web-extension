@@ -132,6 +132,63 @@ export function matchPendingInviteForRemoteAccount(
   })
 }
 
+/**
+ * Local accounts that can actually prove identity: a passkey with credential
+ * data, or a seed account with a G-address. Multisig-mode rows are excluded —
+ * they are imported wallets, not signers, so they must never justify importing
+ * more wallets.
+ */
+export function localSignerAccounts(accounts: StoredAccount[]): StoredAccount[] {
+  return accounts.filter((a) => {
+    if (a.mode === 'passkey') {
+      return Boolean(a.passkeyCredentialId?.trim() || a.passkeyKeyDataHex?.trim())
+    }
+    if (a.mode === 'mnemonic') return Boolean(a.gAddress?.trim())
+    return false
+  })
+}
+
+/**
+ * True when one of this install's signers appears in the wallet's member list.
+ *
+ * `GET /api/multisig/accounts` is scoped to the API session user and includes
+ * wallets they merely created, so being listed is not proof the caller can
+ * sign. Match on signer identity instead. Note the list view withholds
+ * `keyDataHex` (presence-only), so credential id / G-address carry the match.
+ */
+export function remoteMultisigMatchesLocalSigner(
+  remote: MultisigAccount,
+  localAccounts: StoredAccount[]
+): boolean {
+  const signers = localSignerAccounts(localAccounts)
+  if (signers.length === 0) return false
+
+  const members = remote.members
+  if (!members?.length) return false
+
+  const credentialIds = new Set<string>()
+  const keyDataHexes = new Set<string>()
+  const gAddresses = new Set<string>()
+  for (const a of signers) {
+    const cid = a.passkeyCredentialId?.trim()
+    if (cid) credentialIds.add(cid)
+    const hex = a.passkeyKeyDataHex?.trim().toLowerCase()
+    if (hex) keyDataHexes.add(hex)
+    const g = a.gAddress?.trim()
+    if (g) gAddresses.add(g)
+  }
+
+  return members.some((m) => {
+    const cid = m.credentialId?.trim()
+    if (cid && credentialIds.has(cid)) return true
+    const hex = typeof m.keyDataHex === 'string' ? m.keyDataHex.trim().toLowerCase() : ''
+    if (hex && keyDataHexes.has(hex)) return true
+    const g = m.gAddress?.trim()
+    if (g && gAddresses.has(g)) return true
+    return false
+  })
+}
+
 export function multisigLocalAccountNeedsUpdate(
   existing: StoredAccount,
   next: {

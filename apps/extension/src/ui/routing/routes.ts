@@ -17,6 +17,7 @@ export type Route =
   | 'multisigThreshold'
   | 'multisigReviewDeploy'
   | 'multisigSuccess'
+  | 'addExistingMultisig'
   | 'joinMultisig'
   | 'multisigProposals'
   | 'multisigProposalDetail'
@@ -104,6 +105,7 @@ export const MULTISIG_ROUTES: Route[] = [
   'multisigThreshold',
   'multisigReviewDeploy',
   'multisigSuccess',
+  'addExistingMultisig',
   'joinMultisig',
   'multisigProposals',
   'multisigProposalDetail',
