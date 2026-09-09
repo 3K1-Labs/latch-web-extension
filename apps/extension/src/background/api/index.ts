@@ -11,6 +11,7 @@ export {
   latchExtensionJsonBody,
 } from './webauthn'
 export { getBackendAccounts, setBackendActiveAccount } from './accounts'
+export { clearLatchApiSession } from './webauthnSession'
 export {
   getFreighterSmartAccountStatus,
   createOrConnectFreighter,

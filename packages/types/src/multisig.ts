@@ -127,6 +127,19 @@ export interface RegisterMultisigAccountRequest {
   }>
 }
 
+export interface AddExistingMultisigAccountRequest {
+  /** Deployed multisig smart account address (C…). */
+  smartAccountAddress: string
+  label?: string
+}
+
+export interface AddExistingMultisigAccountResponse {
+  account: import('./index').StoredAccount
+  activeAccountId?: string
+  /** How membership was proven: backend member row, or on-chain signer read. */
+  verifiedVia: 'backend' | 'onchain'
+}
+
 export interface MultisigJoinPreviewResponse {
   draft?: MultisigDraft
   threshold?: number

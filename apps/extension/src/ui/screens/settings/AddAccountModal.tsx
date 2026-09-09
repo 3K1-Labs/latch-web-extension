@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 
 import closeIconUrl from 'url:../../../../assets/home/icon-close.svg'
 
-type AddAccountOption = 'smartAccount' | 'multisig'
+type AddAccountOption = 'smartAccount' | 'multisig' | 'existingMultisig'
 
 function AddAccountOptionCard({
   title,
@@ -42,11 +42,13 @@ export function AddAccountModal({
   onClose,
   onSelectSmartAccount,
   onSelectMultisig,
+  onSelectExistingMultisig,
 }: {
   isOpen: boolean
   onClose: () => void
   onSelectSmartAccount: () => void
   onSelectMultisig: () => void
+  onSelectExistingMultisig: () => void
 }) {
   const [selected, setSelected] = useState<AddAccountOption | null>(null)
 
@@ -65,9 +67,13 @@ export function AddAccountModal({
     setSelected(option)
     if (option === 'smartAccount') {
       onSelectSmartAccount()
-    } else {
-      onSelectMultisig()
+      return
     }
+    if (option === 'existingMultisig') {
+      onSelectExistingMultisig()
+      return
+    }
+    onSelectMultisig()
   }
 
   return createPortal(
@@ -119,6 +125,12 @@ export function AddAccountModal({
               description="Create a wallet that requires multiple approvals."
               selected={selected === 'multisig'}
               onClick={() => handleSelect('multisig')}
+            />
+            <AddAccountOptionCard
+              title="Add existing MultiSig"
+              description="Paste the address of a MultiSig wallet you already co-own."
+              selected={selected === 'existingMultisig'}
+              onClick={() => handleSelect('existingMultisig')}
             />
           </div>
         </div>

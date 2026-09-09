@@ -9,7 +9,7 @@ import type {
   StoredAccount,
 } from '@latch/types'
 
-import { clearAllMnemonicVaultRecords } from './mnemonicVault'
+import { clearAllMnemonicVaultRecords, removeMnemonicVaultForAccount } from './mnemonicVault'
 import { getActiveNetwork } from './network/config'
 
 const STORAGE_KEYS = {
@@ -28,6 +28,12 @@ const STORAGE_KEYS = {
   multisigPendingInvites: 'latch.multisigPendingInvites',
   multisigDraftMeta: 'latch.multisigDraftMeta',
   multisigProposalsBannerDismissed: 'latch.multisigProposalsBannerDismissed',
+  /**
+   * Smart account addresses the user removed from this install, per network.
+   * The Latch API lists accounts by session cookie, so without this a removed
+   * wallet would be re-imported by the next multisig sync.
+   */
+  removedAccounts: 'latch.removedAccounts.byNetwork',
 } as const
 
 type DappPermissionsStore = Record<string, DappPermission[] | undefined>
@@ -35,6 +41,7 @@ type DappPermissionsStore = Record<string, DappPermission[] | undefined>
 type AccountsByNetwork = Partial<Record<Network, StoredAccount[]>>
 type ActiveIdByNetwork = Partial<Record<Network, string | undefined>>
 type SetupStateByNetwork = Partial<Record<Network, string | undefined>>
+type RemovedAccountsByNetwork = Partial<Record<Network, string[]>>
 
 export function storageKeys() {
   return STORAGE_KEYS
@@ -419,6 +426,97 @@ export async function dismissMultisigProposalsBanner(accountId: string): Promise
   return next
 }
 
+async function readRemovedAccounts(network: Network): Promise<string[]> {
+  const res = await chrome.storage.local.get([STORAGE_KEYS.removedAccounts])
+  const byNetwork =
+    (res[STORAGE_KEYS.removedAccounts] as RemovedAccountsByNetwork | undefined) ?? {}
+  return byNetwork[network] ?? []
+}
+
+async function writeRemovedAccounts(network: Network, addresses: string[]): Promise<void> {
+  const res = await chrome.storage.local.get([STORAGE_KEYS.removedAccounts])
+  const byNetwork =
+    (res[STORAGE_KEYS.removedAccounts] as RemovedAccountsByNetwork | undefined) ?? {}
+  await chrome.storage.local.set({
+    [STORAGE_KEYS.removedAccounts]: { ...byNetwork, [network]: addresses },
+  })
+}
+
+/** Smart account addresses the user removed on this install (active network). */
+export async function getRemovedAccountAddresses(): Promise<string[]> {
+  return await readRemovedAccounts(await getActiveNetwork())
+}
+
+export async function addRemovedAccountAddress(smartAccountAddress: string): Promise<void> {
+  const addr = smartAccountAddress.trim()
+  if (!addr) return
+  const network = await getActiveNetwork()
+  const current = await readRemovedAccounts(network)
+  if (current.includes(addr)) return
+  await writeRemovedAccounts(network, [...current, addr])
+}
+
+/** Clear the denylist entry so an explicit re-add can succeed. */
+export async function removeRemovedAccountAddress(smartAccountAddress: string): Promise<void> {
+  const addr = smartAccountAddress.trim()
+  if (!addr) return
+  const network = await getActiveNetwork()
+  const current = await readRemovedAccounts(network)
+  if (!current.includes(addr)) return
+  await writeRemovedAccounts(
+    network,
+    current.filter((a) => a !== addr)
+  )
+}
+
+/**
+ * Remove an account from this install only. The smart account still exists
+ * on-chain and multisig signers are untouched; the user can add it back later.
+ */
+export async function deleteAccount(accountId: string): Promise<{
+  accounts: StoredAccount[]
+  activeAccountId?: string
+  removedLastAccount: boolean
+}> {
+  const network = await getActiveNetwork()
+  const { accounts, activeAccountId } = await readAccountsBucket(network)
+  const target = accounts.find((a) => a.id === accountId)
+  if (!target) {
+    return { accounts, activeAccountId, removedLastAccount: false }
+  }
+
+  const nextAccounts = accounts.filter((a) => a.id !== accountId)
+  const nextActive =
+    activeAccountId === accountId ? nextAccounts[0]?.id : (activeAccountId ?? nextAccounts[0]?.id)
+
+  await writeAccountsBucket(network, nextAccounts, nextActive)
+  await removeMnemonicVaultForAccount(accountId)
+
+  const addr = target.smartAccountAddress?.trim()
+  if (addr && !nextAccounts.some((a) => a.smartAccountAddress?.trim() === addr)) {
+    const current = await readRemovedAccounts(network)
+    if (!current.includes(addr)) {
+      await writeRemovedAccounts(network, [...current, addr])
+    }
+  }
+
+  if (nextAccounts.length === 0) {
+    const res = await chrome.storage.local.get([STORAGE_KEYS.setupStateByNetwork])
+    const setupByNetwork =
+      (res[STORAGE_KEYS.setupStateByNetwork] as SetupStateByNetwork | undefined) ?? {}
+    await chrome.storage.local.set({
+      [STORAGE_KEYS.setupStateByNetwork]: { ...setupByNetwork, [network]: 'new' },
+    })
+    await chrome.storage.local.remove([STORAGE_KEYS.legacyAccountPublicKey])
+  }
+
+  return {
+    accounts: nextAccounts,
+    activeAccountId: nextActive,
+    removedLastAccount: nextAccounts.length === 0,
+  }
+}
+
 export async function renameAccount(args: { accountId: string; label?: string }) {
   const network = await getActiveNetwork()
   const { accounts, activeAccountId } = await readAccountsBucket(network)
@@ -511,30 +609,7 @@ export async function clearSession() {
     STORAGE_KEYS.legacyAccountPublicKey,
     STORAGE_KEYS.dappPermissions,
     STORAGE_KEYS.pendingDappRequests,
-  ])
-}
-
-export async function disconnectSessionForLogoutDev() {
-  const network = await getActiveNetwork()
-  const res = await chrome.storage.local.get([
-    STORAGE_KEYS.activeAccountIdByNetwork,
-    STORAGE_KEYS.setupStateByNetwork,
-  ])
-  const activeByNetwork =
-    (res[STORAGE_KEYS.activeAccountIdByNetwork] as ActiveIdByNetwork | undefined) ?? {}
-  const setupByNetwork =
-    (res[STORAGE_KEYS.setupStateByNetwork] as SetupStateByNetwork | undefined) ?? {}
-
-  await chrome.storage.local.set({
-    [STORAGE_KEYS.activeAccountIdByNetwork]: { ...activeByNetwork, [network]: undefined },
-    [STORAGE_KEYS.setupStateByNetwork]: { ...setupByNetwork, [network]: 'new' },
-  })
-  await chrome.storage.local.remove([
-    STORAGE_KEYS.legacyAccountPublicKey,
-    STORAGE_KEYS.dappPermissions,
-    STORAGE_KEYS.pendingDappRequests,
-    STORAGE_KEYS.activeAccountId,
-    STORAGE_KEYS.setupState,
+    STORAGE_KEYS.removedAccounts,
   ])
 }
 

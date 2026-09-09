@@ -3,7 +3,10 @@ import type {
   BackendWebauthnAuthenticationFinishRequest,
   BackendWebauthnRegistrationFinishRequest,
   CreateOrConnectPasskeyRequest,
+  DeleteAccountRequest,
+  DeleteAccountResponse,
   GetAccountsResponse,
+  GetBackendAccountsRequest,
   ImportMnemonicAccountRequest,
   SetActiveAccountRequest,
   SetSetupStateRequest,
@@ -13,6 +16,7 @@ import type {
 import { ensureSetupStateMatchesAccounts, getSetupState, setSetupState } from '../actionBehavior'
 import { BackendError } from '../api/client'
 import {
+  clearLatchApiSession,
   createOrConnectPasskey,
   ensureFreighterSmartAccountDeployed,
   getBackendAccounts,
@@ -24,6 +28,7 @@ import {
 import { broadcastActiveAccountChanged } from '../dappProviderEvents'
 import type { OkFn } from '../messageResponse'
 import {
+  clearMnemonicSessionKeyForAccount,
   clearMnemonicSessionKeys,
   getMnemonicKeypair,
   registerMnemonicKeypair,
@@ -37,8 +42,10 @@ import {
 import { deriveStellarKeypairFromMnemonic } from '../stellarMnemonic'
 import {
   createAccount,
-  disconnectSessionForLogoutDev,
+  clearSession,
+  deleteAccount,
   getAccounts,
+  removeRemovedAccountAddress,
   renameAccount,
   setActiveAccount,
 } from '../storage'
@@ -65,8 +72,10 @@ export async function tryHandleAccountsMessage(
 
     case 'LOGOUT': {
       clearMnemonicSessionKeys()
-      await disconnectSessionForLogoutDev()
-      await ensureSetupStateMatchesAccounts()
+      // Wipe local wallets + API sid so the next cold start is a fresh install.
+      // On-chain accounts are untouched; users re-add via passkey login / Add existing.
+      await clearLatchApiSession()
+      await clearSession()
       sendResponse(ok())
       return true
     }
@@ -193,7 +202,10 @@ export async function tryHandleAccountsMessage(
     }
 
     case 'GET_BACKEND_ACCOUNTS': {
-      const data = await getBackendAccounts()
+      const req = (message.payload ?? {}) as GetBackendAccountsRequest
+      const data = await getBackendAccounts(
+        req.credentialId ? { credentialId: req.credentialId } : undefined
+      )
       sendResponse(ok(data))
       return true
     }
@@ -215,6 +227,9 @@ export async function tryHandleAccountsMessage(
         })
       }
 
+      // Persist only the credential that completed the ceremony. Backend now scopes
+      // `data.accounts` to the passkey owner, but we still keep the stricter
+      // single-credential import so this install only stores what this login proved.
       const { account, activeAccountId } = await createAccount({
         mode: 'passkey',
         smartAccountAddress: data.smartAccountAddress,
@@ -222,15 +237,7 @@ export async function tryHandleAccountsMessage(
         passkeyKeyDataHex: data.keyDataHex,
       })
 
-      // Best-effort: attach other passkey accounts from session list (may not include keyDataHex).
-      for (const a of data.accounts ?? []) {
-        if (!a.smartAccountAddress || !a.credentialId) continue
-        await createAccount({
-          mode: 'passkey',
-          smartAccountAddress: a.smartAccountAddress,
-          passkeyCredentialId: a.credentialId,
-        })
-      }
+      await removeRemovedAccountAddress(data.smartAccountAddress)
 
       const accRes = await getAccounts()
       sendResponse(ok({ ...data, account, accounts: accRes.accounts, activeAccountId }))
@@ -241,6 +248,22 @@ export async function tryHandleAccountsMessage(
       const req = message.payload as { accountId: string; label?: string }
       await renameAccount(req)
       sendResponse(ok())
+      return true
+    }
+
+    case 'DELETE_ACCOUNT': {
+      const req = message.payload as DeleteAccountRequest
+      const result = await deleteAccount(req.accountId)
+      clearMnemonicSessionKeyForAccount(req.accountId)
+      if (result.removedLastAccount) {
+        // Nothing left to prove who this user is; drop the API session too so a
+        // later hydrate cannot re-import the old session user's wallets.
+        await clearLatchApiSession()
+      }
+      await ensureSetupStateMatchesAccounts()
+      await broadcastActiveAccountChanged()
+      const payload: DeleteAccountResponse = result
+      sendResponse(ok(payload))
       return true
     }
 

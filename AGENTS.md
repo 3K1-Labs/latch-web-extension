@@ -124,6 +124,18 @@ State is stored in `chrome.storage.local` (no secrets):
 
 Render onboarding until `setupState === "has_account"`, then the dashboard/home UI.
 
+### Account list identity (do not widen)
+
+The Latch API identifies callers by an anonymous **`sid` cookie** that survives reinstalls and mints a new user when absent, so "what the API returns for this cookie" is **not** "what belongs to this user". The account list must be scoped to signers this install has actually proved. Full analysis and the backend fix: [`LATCH_BACKEND_ACCOUNT_IDENTITY.md`](LATCH_BACKEND_ACCOUNT_IDENTITY.md).
+
+Rules to preserve:
+
+- **`PASSKEY_AUTH_FINISH` persists only the credential that completed the ceremony.** Never loop over `data.accounts` and upsert siblings — that list is every account on the cookie user.
+- **Multisig sync requires a local signer.** `syncLocalMultisigAccountsFromBackend` imports a listed wallet only when a member matches a local passkey/seed (`remoteMultisigMatchesLocalSigner`); creator-only rows are skipped. With no local signer it imports nothing.
+- **Empty account store clears `sid`** (fresh install or last account removed). Use `clearLatchApiSession()`.
+- **`LOGOUT` is a full local wipe:** `clearLatchApiSession()` plus `clearSession()` (all networks' accounts, vaults, setup, denylist). On-chain wallets are untouched. UI confirms, then returns to onboarding.
+- **Removal is local only.** `DELETE_ACCOUNT` drops the `StoredAccount` and records the address in the per-network denylist (`latch.removedAccounts.byNetwork`) so sync cannot resurrect it. It never leaves the on-chain wallet or removes a multisig signer. An explicit re-add clears the denylist entry. The UI applies the delete response accounts list immediately so View Accounts updates without waiting on a follow-up GET.
+
 ### WebAuthn / passkey (Chrome extension)
 
 Passkeys use a **shared HTTPS-domain RP ID** so the same credential can work in the Chrome extension, a future Latch website, and associated native apps.
@@ -158,7 +170,8 @@ dApp `signTransaction` / sign-request review uses **wallet-side XDR decode** for
 
 - Deployed multisig wallets are **`StoredAccount`** entries with **`mode: 'multisig'`**. They reuse **`GET_SMART_ACCOUNT_BALANCES`**, history, and account switching like passkey wallets.
 - **Session fields on `StoredAccount`**: `multisigMemberId`, `multisigBackendAccountId`, `multisigThreshold` (required for approve/execute). Optional cosign fields (`cosignWckRefId`, etc.) may exist on disk but are **not used** by the live path.
-- **Routes** (popup + side panel): `createMultisig`, `addMultisigOwners`, `multisigThreshold`, `multisigReviewDeploy`, `multisigSuccess`, `joinMultisig`, `multisigWallets`, `multisigProposals`, `multisigProposalDetail`.
+- **Routes** (popup + side panel): `createMultisig`, `addMultisigOwners`, `multisigThreshold`, `multisigReviewDeploy`, `multisigSuccess`, `addExistingMultisig`, `joinMultisig`, `multisigWallets`, `multisigProposals`, `multisigProposalDetail`.
+- **Add existing wallet**: Settings → View Accounts → Add → **Add existing MultiSig** routes to `addExistingMultisig`. **`MULTISIG_ADD_EXISTING_ACCOUNT`** proves membership in the background (backend member row matching a local signer, else a read-only on-chain read of the Default context rule in [`onchainSigners.ts`](apps/extension/src/background/multisig/onchainSigners.ts)) and **fails closed** for non-signers. UI never touches RPC.
 - **Create flow**: `MULTISIG_CREATE_DRAFT` → co-owners (**Add my passkey**, paste `G…`, or invite link `?multisigJoin=` / legacy `?cosignJoin=`) → threshold → predict → **`POST /api/multisig/drafts/{id}/deploy`** → local account + `MULTISIG_LIST_ACCOUNTS` sync.
 - **Join flow**: deep link or Settings → Multisig Wallets; [`MultisigJoinFlow`](apps/extension/src/ui/multisig/MultisigJoinFlow.tsx) uses **`MULTISIG_JOIN_*`**, then pending invite + sync so members get `smartAccountAddress` + `multisigMemberId`.
 - **Send**: when the active account is multisig, Send creates a backend proposal via `createMultisigSendProposalWithSetup` (`MULTISIG_CREATE_PROPOSAL`). **Swap is disabled** for multisig accounts.

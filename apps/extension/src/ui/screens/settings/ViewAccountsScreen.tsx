@@ -1,5 +1,5 @@
-import React, { useState } from 'react'
-import { Plus } from 'lucide-react'
+import React, { useEffect, useState } from 'react'
+import { Plus, Trash2 } from 'lucide-react'
 
 import type { AccountMode } from '@latch/types'
 
@@ -10,6 +10,7 @@ import userAvatarUrl from 'url:../../../../assets/icons/user.png'
 import { AccountRadio } from './AccountRadio'
 import { AddAccountFlow } from './add-account/AddAccountFlow'
 import { AddAccountModal } from './AddAccountModal'
+import { ConfirmRemoveAccountModal } from './ConfirmRemoveAccountModal'
 import { SettingsScreenHeader } from './SettingsScreenHeader'
 
 export type ViewAccountItem = {
@@ -30,12 +31,14 @@ function AccountListRow({
   mode,
   selected,
   onSelect,
+  onRemove,
 }: {
   name: string
   address: string
   mode?: ViewAccountItem['mode']
   selected: boolean
   onSelect: () => void
+  onRemove?: () => void
 }) {
   const [copied, setCopied] = useState(false)
   const timeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -92,7 +95,22 @@ function AccountListRow({
           </div>
         </div>
       </div>
-      <AccountRadio selected={selected} />
+      <div className="flex shrink-0 items-center gap-3">
+        {onRemove ? (
+          <button
+            type="button"
+            aria-label={`Remove ${name}`}
+            className="inline-flex size-4 shrink-0 items-center justify-center text-[#b3b3b3] transition-colors hover:text-[#ea471e]"
+            onClick={(e) => {
+              e.stopPropagation()
+              onRemove()
+            }}
+          >
+            <Trash2 className="size-4" strokeWidth={1.5} />
+          </button>
+        ) : null}
+        <AccountRadio selected={selected} />
+      </div>
     </button>
   )
 }
@@ -105,6 +123,8 @@ export function ViewAccountsScreen({
   onSave,
   onAccountsChanged,
   onCreateMultisig,
+  onDeleteAccount,
+  onAddExistingMultisig,
 }: {
   surface: 'popup' | 'sidepanel'
   accounts: ViewAccountItem[]
@@ -113,13 +133,40 @@ export function ViewAccountsScreen({
   onSave: (accountId: string) => void
   onAccountsChanged: () => void
   onCreateMultisig: () => void
+  onDeleteAccount: (accountId: string) => Promise<void>
+  onAddExistingMultisig: () => void
 }) {
   const [selectedAccountId, setSelectedAccountId] = useState(
     activeAccountId ?? accounts[0]?.id ?? ''
   )
   const [addAccountModalOpen, setAddAccountModalOpen] = useState(false)
   const [addAccountFlowOpen, setAddAccountFlowOpen] = useState(false)
+  const [pendingRemoval, setPendingRemoval] = useState<ViewAccountItem | null>(null)
+  const [removing, setRemoving] = useState(false)
+  const [removeError, setRemoveError] = useState<string | undefined>(undefined)
   const canSave = selectedAccountId !== activeAccountId && selectedAccountId.length > 0
+
+  useEffect(() => {
+    if (accounts.some((a) => a.id === selectedAccountId)) return
+    setSelectedAccountId(activeAccountId ?? accounts[0]?.id ?? '')
+  }, [accounts, activeAccountId, selectedAccountId])
+
+  async function confirmRemoval() {
+    if (!pendingRemoval) return
+    setRemoving(true)
+    setRemoveError(undefined)
+    try {
+      await onDeleteAccount(pendingRemoval.id)
+      if (selectedAccountId === pendingRemoval.id) {
+        setSelectedAccountId(activeAccountId ?? '')
+      }
+      setPendingRemoval(null)
+    } catch (err) {
+      setRemoveError(err instanceof Error ? err.message : 'Could not remove this account.')
+    } finally {
+      setRemoving(false)
+    }
+  }
 
   if (addAccountFlowOpen) {
     return (
@@ -159,6 +206,10 @@ export function ViewAccountsScreen({
               mode={account.mode}
               selected={account.id === selectedAccountId}
               onSelect={() => setSelectedAccountId(account.id)}
+              onRemove={() => {
+                setRemoveError(undefined)
+                setPendingRemoval(account)
+              }}
             />
           ))}
         </div>
@@ -193,6 +244,23 @@ export function ViewAccountsScreen({
           setAddAccountModalOpen(false)
           onCreateMultisig()
         }}
+        onSelectExistingMultisig={() => {
+          setAddAccountModalOpen(false)
+          onAddExistingMultisig()
+        }}
+      />
+
+      <ConfirmRemoveAccountModal
+        isOpen={Boolean(pendingRemoval)}
+        accountName={pendingRemoval?.name ?? ''}
+        busy={removing}
+        error={removeError}
+        onCancel={() => {
+          if (removing) return
+          setPendingRemoval(null)
+          setRemoveError(undefined)
+        }}
+        onConfirm={() => void confirmRemoval()}
       />
     </div>
   )

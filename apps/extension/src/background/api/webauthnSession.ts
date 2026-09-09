@@ -195,10 +195,8 @@ export async function getWebauthnSession(
   return undefined
 }
 
-export async function captureSidAfterBegin(
-  baseUrl: string,
-  res: Response
-): Promise<string | undefined> {
+/** Persist `sid` from a Set-Cookie response (begin or authentication finish rotation). */
+export async function captureSid(baseUrl: string, res: Response): Promise<string | undefined> {
   let sid = extractSidFromFetchResponse(res)
   if (sid) {
     await setLatchSidCookie(baseUrl, sid)
@@ -207,6 +205,9 @@ export async function captureSidAfterBegin(
   sid = await readSidCookieWithRetry(baseUrl, 12, 50)
   return sid
 }
+
+/** @deprecated Prefer {@link captureSid} — same behavior. */
+export const captureSidAfterBegin = captureSid
 
 export async function webauthnSessionCookieHeader(
   expectedKind: WebauthnSessionKind
@@ -225,4 +226,17 @@ export async function clearWebauthnSession(): Promise<void> {
   } catch {
     // ignore
   }
+}
+
+/**
+ * Drop the Latch API session entirely (`sid` cookie + any in-flight ceremony).
+ *
+ * The API identifies callers by an anonymous `sid` cookie and mints a new user
+ * when it is absent, so a stale cookie makes a fresh install look like the
+ * previous session user and its whole account list. Call this on logout and
+ * whenever local storage holds no accounts.
+ */
+export async function clearLatchApiSession(): Promise<void> {
+  await clearWebauthnSession()
+  await clearLatchSidCookie(latchApiBaseUrl())
 }

@@ -1,5 +1,6 @@
 export {
   BackendError,
+  clearLatchApiSession,
   buildDelegatedTx,
   buildSendTx,
   buildSwapTx,

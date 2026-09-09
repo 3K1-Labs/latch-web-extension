@@ -18,6 +18,7 @@ import signersIconUrl from 'url:../../../assets/home/settings-signers.svg'
 
 import { AccountInformationScreen } from './settings/AccountInformationScreen'
 import { AddressBookScreen } from './settings/AddressBookScreen'
+import { ConfirmLogoutModal } from './settings/ConfirmLogoutModal'
 import { NetworkSettingsScreen } from './settings/NetworkSettingsScreen'
 import { PermissionsFlow } from './settings/PermissionsFlow'
 import { ProfileCard } from './settings/ProfileCard'
@@ -53,6 +54,8 @@ export function SettingsScreen({
   onSelectAccount,
   onAccountsChanged,
   onCreateMultisig,
+  onAddExistingMultisig,
+  onDeleteAccount,
   onOpenMultisigWallets,
   onOpenMultisigProposals,
   pendingMultisigProposalCount,
@@ -75,6 +78,8 @@ export function SettingsScreen({
   onSelectAccount?: (accountId: string) => void
   onAccountsChanged?: () => void
   onCreateMultisig?: () => void
+  onAddExistingMultisig?: () => void
+  onDeleteAccount?: (accountId: string) => Promise<void>
   onOpenMultisigWallets?: () => void
   onOpenMultisigProposals?: () => void
   pendingMultisigProposalCount?: number
@@ -82,13 +87,29 @@ export function SettingsScreen({
   activeNetwork: Network
   onChangeNetwork: (network: Network) => Promise<void>
   onClose: () => void
-  onLogout: () => void
+  onLogout: () => void | Promise<void>
 }) {
   const [view, setView] = useState<SettingsView>('menu')
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false)
+  const [logoutBusy, setLogoutBusy] = useState(false)
+  const [logoutError, setLogoutError] = useState<string | undefined>(undefined)
 
   const handleClose = () => {
     setView('menu')
     onClose()
+  }
+
+  async function confirmLogout() {
+    setLogoutBusy(true)
+    setLogoutError(undefined)
+    try {
+      await onLogout()
+      setLogoutConfirmOpen(false)
+    } catch (err) {
+      setLogoutError(err instanceof Error ? err.message : 'Could not log out.')
+    } finally {
+      setLogoutBusy(false)
+    }
   }
 
   if (view === 'network') {
@@ -130,6 +151,11 @@ export function SettingsScreen({
           onBack={() => setView('menu')}
           onAccountsChanged={() => onAccountsChanged?.()}
           onCreateMultisig={() => onCreateMultisig?.()}
+          onAddExistingMultisig={() => onAddExistingMultisig?.()}
+          onDeleteAccount={async (accountId) => {
+            await onDeleteAccount?.(accountId)
+            onAccountsChanged?.()
+          }}
           onSave={(accountId) => {
             onSelectAccount?.(accountId)
             setView('menu')
@@ -291,10 +317,25 @@ export function SettingsScreen({
             label="Log Out"
             danger
             showChevron={false}
-            onClick={onLogout}
+            onClick={() => {
+              setLogoutError(undefined)
+              setLogoutConfirmOpen(true)
+            }}
           />
         </div>
       </div>
+
+      <ConfirmLogoutModal
+        isOpen={logoutConfirmOpen}
+        busy={logoutBusy}
+        error={logoutError}
+        onCancel={() => {
+          if (logoutBusy) return
+          setLogoutConfirmOpen(false)
+          setLogoutError(undefined)
+        }}
+        onConfirm={() => void confirmLogout()}
+      />
     </div>
   )
 }

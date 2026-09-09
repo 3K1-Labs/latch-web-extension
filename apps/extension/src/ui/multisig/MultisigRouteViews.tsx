@@ -14,10 +14,12 @@ import {
   parseMultisigJoinTokenFromLocation,
 } from '../lib/multisigDeepLink'
 import {
+  apiAddExistingMultisigAccount,
   apiSyncLocalMultisigAccounts,
   apiCreateLocalMultisigAccount,
   apiListMultisigAccounts,
 } from '../lib/multisigFlow'
+import { AddExistingMultisigScreen } from '../screens/multisig/AddExistingMultisigScreen'
 import { MultisigJoinFlow } from './MultisigJoinFlow'
 import { MultisigCreateWizard } from './MultisigCreateWizard'
 import { MultisigProposalsViews } from './MultisigProposalsViews'
@@ -30,6 +32,7 @@ export type MultisigRoute =
   | 'multisigReviewDeploy'
   | 'multisigSuccess'
   | 'multisigDeployFailure'
+  | 'addExistingMultisig'
   | 'joinMultisig'
   | 'multisigProposals'
   | 'multisigProposalDetail'
@@ -83,6 +86,35 @@ export function MultisigRouteViews({
   const [pendingInvites, setPendingInvites] = useState<MultisigPendingInvite[]>([])
   const [joinCode, setJoinCode] = useState('')
   const [joinCodeError, setJoinCodeError] = useState<string | null>(null)
+
+  const [addExistingAddress, setAddExistingAddress] = useState('')
+  const [addExistingLabel, setAddExistingLabel] = useState('')
+  const [addExistingError, setAddExistingError] = useState<string | null>(null)
+  const [addExistingBusy, setAddExistingBusy] = useState(false)
+
+  async function submitAddExistingMultisig() {
+    const smartAccountAddress = addExistingAddress.trim()
+    if (!smartAccountAddress || addExistingBusy) return
+    setAddExistingBusy(true)
+    setAddExistingError(null)
+    try {
+      const result = await apiAddExistingMultisigAccount({
+        smartAccountAddress,
+        label: addExistingLabel.trim() || undefined,
+      })
+      await onRefreshAccounts()
+      onSetActiveAccountId(result.account.id)
+      setAddExistingAddress('')
+      setAddExistingLabel('')
+      onSetRoute('home')
+    } catch (err) {
+      setAddExistingError(
+        err instanceof Error ? err.message : 'Could not add that MultiSig wallet.'
+      )
+    } finally {
+      setAddExistingBusy(false)
+    }
+  }
 
   const loadMultisigHub = useCallback(async () => {
     try {
@@ -142,6 +174,29 @@ export function MultisigRouteViews({
         onAccountsSynced={onRefreshAccounts}
         onJoined={() => onSetRoute('multisigWallets')}
         onBack={() => onSetRoute('home')}
+      />
+    )
+  }
+
+  if (route === 'addExistingMultisig') {
+    return (
+      <AddExistingMultisigScreen
+        address={addExistingAddress}
+        label={addExistingLabel}
+        error={addExistingError}
+        busy={addExistingBusy}
+        onAddressChange={(next) => {
+          setAddExistingAddress(next)
+          setAddExistingError(null)
+        }}
+        onLabelChange={setAddExistingLabel}
+        onBack={() => {
+          setAddExistingAddress('')
+          setAddExistingLabel('')
+          setAddExistingError(null)
+          onSetRoute('home')
+        }}
+        onSubmit={() => void submitAddExistingMultisig()}
       />
     )
   }

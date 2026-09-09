@@ -311,6 +311,25 @@ export async function apiCreateLocalMultisigAccount(args: {
   return res.data
 }
 
+/**
+ * Attach a multisig wallet the user already co-owns. The background proves
+ * membership (backend member row or on-chain signer read) before adding.
+ */
+export async function apiAddExistingMultisigAccount(args: {
+  smartAccountAddress: string
+  label?: string
+}) {
+  const res = await sendToBackground<
+    import('@latch/types').AddExistingMultisigAccountRequest,
+    import('@latch/types').AddExistingMultisigAccountResponse
+  >({
+    type: 'MULTISIG_ADD_EXISTING_ACCOUNT',
+    payload: args,
+  })
+  if (!res.ok || !res.data) throw new Error(friendlyError(res.error))
+  return res.data
+}
+
 export async function apiCreateMultisigProposal(
   req: CreateMultisigProposalRequest
 ): Promise<CreateMultisigProposalResponse> {

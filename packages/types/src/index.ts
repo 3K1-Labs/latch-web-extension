@@ -323,6 +323,26 @@ export interface SetActiveAccountRequest {
   accountId: string
 }
 
+export interface DeleteAccountRequest {
+  accountId: string
+}
+
+/**
+ * Removing an account only affects this install: the smart account stays
+ * on-chain and multisig signers are untouched.
+ */
+export interface DeleteAccountResponse {
+  accounts: StoredAccount[]
+  activeAccountId?: string
+  /** True when the list is now empty and the UI should return to onboarding. */
+  removedLastAccount: boolean
+}
+
+/** Optional filter for `GET /api/accounts?credentialId=`. */
+export interface GetBackendAccountsRequest {
+  credentialId?: string
+}
+
 export interface CreateOrConnectFreighterRequest {
   gAddress: string
   /** Stellar network; omit → API defaults to testnet. */
@@ -738,6 +758,7 @@ export type MessageType =
   | 'PASSKEY_AUTH_FINISH'
   | 'GET_BACKEND_ACCOUNTS'
   | 'RENAME_ACCOUNT'
+  | 'DELETE_ACCOUNT'
   | 'GET_DAPP_PERMISSIONS'
   | 'SET_DAPP_PERMISSIONS'
   | 'LIST_PENDING_DAPP_REQUESTS'
@@ -782,6 +803,7 @@ export type MessageType =
   | 'MULTISIG_DRAFT_PASSKEY_AUTH_FINISH'
   | 'MULTISIG_LIST_ACCOUNTS'
   | 'MULTISIG_REGISTER_ACCOUNT'
+  | 'MULTISIG_ADD_EXISTING_ACCOUNT'
   | 'MULTISIG_JOIN_PREVIEW'
   | 'MULTISIG_JOIN_MEMBER'
   | 'MULTISIG_JOIN_PASSKEY_REG_BEGIN'
@@ -875,8 +897,9 @@ export type BackgroundRequestPayloadByType = {
   PASSKEY_REG_FINISH: BackendWebauthnRegistrationFinishRequest
   PASSKEY_AUTH_BEGIN: undefined
   PASSKEY_AUTH_FINISH: BackendWebauthnAuthenticationFinishRequest
-  GET_BACKEND_ACCOUNTS: undefined
+  GET_BACKEND_ACCOUNTS: GetBackendAccountsRequest | undefined
   RENAME_ACCOUNT: { accountId: string; label?: string }
+  DELETE_ACCOUNT: DeleteAccountRequest
   GET_DAPP_PERMISSIONS: GetDappPermissionsRequest
   SET_DAPP_PERMISSIONS: SetDappPermissionsRequest
   LIST_PENDING_DAPP_REQUESTS: ListPendingDappRequestsRequest
@@ -921,6 +944,7 @@ export type BackgroundRequestPayloadByType = {
   MULTISIG_DRAFT_PASSKEY_AUTH_FINISH: import('./multisig').MultisigDraftPasskeyRegFinishRequest
   MULTISIG_LIST_ACCOUNTS: undefined
   MULTISIG_REGISTER_ACCOUNT: import('./multisig').RegisterMultisigAccountRequest
+  MULTISIG_ADD_EXISTING_ACCOUNT: import('./multisig').AddExistingMultisigAccountRequest
   MULTISIG_JOIN_PREVIEW: import('./multisig').MultisigJoinTokenRequest
   MULTISIG_JOIN_MEMBER: import('./multisig').MultisigJoinMemberRequest
   MULTISIG_JOIN_PASSKEY_REG_BEGIN: import('./multisig').MultisigJoinPasskeyRegBeginRequest
@@ -1023,6 +1047,7 @@ export type BackgroundResponseDataByType = {
   }
   GET_BACKEND_ACCOUNTS: BackendAccountsResponse
   RENAME_ACCOUNT: undefined
+  DELETE_ACCOUNT: DeleteAccountResponse
   GET_DAPP_PERMISSIONS: GetDappPermissionsResponse
   SET_DAPP_PERMISSIONS: GetDappPermissionsResponse
   LIST_PENDING_DAPP_REQUESTS: ListPendingDappRequestsResponse
@@ -1067,6 +1092,7 @@ export type BackgroundResponseDataByType = {
   MULTISIG_DRAFT_PASSKEY_AUTH_FINISH: import('./multisig').MultisigDraftPasskeyRegFinishResponse
   MULTISIG_LIST_ACCOUNTS: import('./multisig').ListMultisigAccountsResponse
   MULTISIG_REGISTER_ACCOUNT: import('./multisig').MultisigAccount
+  MULTISIG_ADD_EXISTING_ACCOUNT: import('./multisig').AddExistingMultisigAccountResponse
   MULTISIG_JOIN_PREVIEW: import('./multisig').MultisigJoinPreviewResponse
   MULTISIG_JOIN_MEMBER: import('./multisig').MultisigDraft
   MULTISIG_JOIN_PASSKEY_REG_BEGIN: BackendWebauthnBeginResponse
