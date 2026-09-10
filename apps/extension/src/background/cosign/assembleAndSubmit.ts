@@ -1,7 +1,13 @@
 import type { CosignRequest } from '@latch/types'
 import { Transaction, xdr } from '@stellar/stellar-sdk'
 
-import { createRpcServer, simulateAndAssembleSoroban, sendAndPollSoroban } from '@latch/stellar'
+import {
+  assembleWithEnforcingSimulation,
+  createRpcServer,
+  extractInvokeHostAuth,
+  replaceInvokeHostAuth,
+  sendAndPollSoroban,
+} from '@latch/stellar'
 import { markCosignSubmitted } from '../api/cosign/cosignQueue'
 import { submitTxWebauthn } from '../api/transactions'
 import { networkPassphraseFromEnv, sorobanRpcUrlFromEnv } from '../migration/env'
@@ -20,24 +26,20 @@ function transactionFromXdr(xdrB64: string): Transaction {
 }
 
 /**
- * Merge cosign partial auth entries into the unsigned transaction envelope.
+ * Merge cosign partial auth entries onto the InvokeHostFunction op (issue #61).
+ * Auth must live on op.auth — not only SorobanTransactionData — so enforcing
+ * re-simulation can see signed address credentials.
  */
 export function mergeCosignAuthEntries(unsignedTxXdr: string, authEntryXdrs: string[]): string {
-  const envelope = xdr.TransactionEnvelope.fromXDR(unsignedTxXdr, 'base64')
-  const v1 = envelope.v1()
-  if (!v1) throw new Error('Expected v1 transaction envelope')
-
-  const txInner = v1.tx()
-  const ext = txInner.ext()
-  if (ext.switch() !== 1) throw new Error('Expected Soroban transaction extension')
-
-  const sorobanData = ext.sorobanData()
+  const passphrase = networkPassphrase()
+  const tx = new Transaction(unsignedTxXdr, passphrase)
   const signedEntries = authEntryXdrs.map((b64) =>
     xdr.SorobanAuthorizationEntry.fromXDR(b64, 'base64')
   )
-  sorobanData.auth(signedEntries.length > 0 ? signedEntries : sorobanData.auth())
-
-  return new Transaction(envelope, networkPassphrase()).toXDR('base64')
+  if (signedEntries.length === 0) {
+    return tx.toXDR('base64')
+  }
+  return replaceInvokeHostAuth(tx, signedEntries, passphrase).toXDR('base64')
 }
 
 export async function assembleAndSubmitCosignRequest(args: {
@@ -54,16 +56,15 @@ export async function assembleAndSubmitCosignRequest(args: {
   const mergedXdr = mergeCosignAuthEntries(args.request.unsigned_tx_xdr, authXdrs)
   const server = createRpcServer(rpcUrl())
   const tx = transactionFromXdr(mergedXdr)
-  const assembled = await simulateAndAssembleSoroban(server, tx)
+  // Explicit enforcing re-sim: recording footprint omits __check_auth (issue #61).
+  const assembled = await assembleWithEnforcingSimulation(server, tx, networkPassphrase())
 
   let txHash: string
 
   if (args.keyDataHex?.trim()) {
     const smartIdx = 0
-    const authEntries = assembled.toEnvelope().v1()?.tx().ext().sorobanData().auth() ?? []
-    const authEntriesXdr = authEntries.map((entry: xdr.SorobanAuthorizationEntry) =>
-      entry.toXDR('base64')
-    )
+    const authEntries = extractInvokeHostAuth(assembled)
+    const authEntriesXdr = authEntries.map((entry) => entry.toXDR('base64'))
     const submit = await submitTxWebauthn({
       txXdr: assembled.toXDR('base64'),
       authEntryXdr: authEntriesXdr[smartIdx] ?? authXdrs[0]!,
