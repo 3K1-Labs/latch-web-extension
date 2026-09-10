@@ -52,6 +52,7 @@ packages/
 - All inter-context communication via `chrome.runtime.sendMessage`
 - Message types defined in `@latch/types` (`MessageType`, `BackgroundMessage`, `BackgroundResponse`)
 - Network config via `PLASMO_PUBLIC_*` env vars. Outbound HTTP lives in [`apps/extension/src/background/api/*`](apps/extension/src/background/api/); [`backend.ts`](apps/extension/src/background/backend.ts) re-exports the public API. **`PLASMO_PUBLIC_LATCH_API_URL`** defaults to `https://latch-backend.onrender.com` (Render Go backend). **`PLASMO_PUBLIC_LATCH_MARKET_API_URL`** defaults to `{LATCH_API_URL}/v1` when unset. Local dev: set to `http://localhost:3000` and ensure `apps/extension/package.json` `manifest.host_permissions` includes that origin.
+- **Never copy `apps/extension/.env.example` over `apps/extension/.env`.** `.env` is local-only and gitignored; overwriting it destroys developer-specific values. Edit `.env` **manually** when a var must change. CI may still seed from `.env.example` in a clean checkout — that does not authorize agents to clobber an existing local `.env`.
 - Stellar network: testnet by default during development
 - All icons SVGs should never be written from scratch, prefer importing icons that fit the task.
 - Use lucide icons or icon svgs if provided
@@ -271,3 +272,4 @@ pnpm format      # prettier across repo
 - Do not sign transactions in the popup or content script
 - Do not store raw private keys in chrome.storage — vault must be encrypted
 - Do not add Redux — use context or Zustand at the right scope
+- Do not run `cp apps/extension/.env.example apps/extension/.env` (or equivalent) when a local `.env` already exists — update `.env` by hand instead

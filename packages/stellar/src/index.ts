@@ -23,9 +23,30 @@ export type { AssessExternalSignReviewParams, ParsedTxForReview } from './parseT
 export {
   createRpcServer,
   DEFAULT_SOROBAN_BASE_FEE,
+  assembleWithEnforcingSimulation,
   sendAndPollSoroban,
   simulateAndAssembleSoroban,
 } from './sorobanPipeline'
+
+export {
+  applyDelegatedGSignature,
+  buildDelegatedAuthPayload,
+  buildWebAuthnAuthPayload,
+  contextRuleIdsForEntry,
+  countAuthContexts,
+  extractInvokeHostAuth,
+  replaceInvokeHostAuth,
+  setAddressAuthSignature,
+  txHasSignedAddressAuth,
+} from './sorobanAuth'
+
+export {
+  compareResourceSummaries,
+  formatResourceCompareLog,
+  summarizeSimulationResources,
+  summarizeTransactionResources,
+} from './sorobanResources'
+export type { ResourceCompareResult, SorobanResourceSummary } from './sorobanResources'
 
 export {
   createHorizonServer,

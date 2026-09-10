@@ -1,4 +1,6 @@
-import { rpc, Transaction } from '@stellar/stellar-sdk'
+import { rpc, Transaction, xdr } from '@stellar/stellar-sdk'
+
+import { extractInvokeHostAuth, replaceInvokeHostAuth, txHasSignedAddressAuth } from './sorobanAuth'
 
 /** Soroban fee used before simulation; often replaced by assembled tx fee. */
 export const DEFAULT_SOROBAN_BASE_FEE = '1500000'
@@ -7,32 +9,74 @@ export function createRpcServer(rpcUrl: string): rpc.Server {
   return new rpc.Server(rpcUrl, { allowHttp: rpcUrl.startsWith('http:') })
 }
 
+function simulationErrorMessage(sim: rpc.Api.SimulateTransactionErrorResponse): string {
+  const err = sim.error
+  if (typeof err === 'string') return err
+  if (err && typeof err === 'object' && 'message' in err) {
+    return String((err as { message?: unknown }).message)
+  }
+  return JSON.stringify(err)
+}
+
+function assertSimulationSuccess(
+  sim: rpc.Api.SimulateTransactionResponse
+): asserts sim is rpc.Api.SimulateTransactionSuccessResponse {
+  if (rpc.Api.isSimulationError(sim)) {
+    throw new Error(simulationErrorMessage(sim) || 'Simulation failed')
+  }
+  if (!rpc.Api.isSimulationSuccess(sim)) {
+    throw new Error('Unexpected simulation response')
+  }
+  if (sim.transactionData == null) {
+    throw new Error('Token SAC does not exist on this network — cannot transfer this asset.')
+  }
+}
+
+/**
+ * Re-simulate a transaction that already carries signed auth entries (enforcing
+ * mode — host runs `__check_auth` for real), then re-assemble footprint/fees and
+ * re-assert the exact signed auth (assembleTransaction rewrites op.auth).
+ *
+ * Mobile pattern: recording sim → sign → enforcing sim → assemble → setOpAuth.
+ */
+export async function assembleWithEnforcingSimulation(
+  server: rpc.Server,
+  txWithSignedAuth: Transaction,
+  networkPassphrase?: string
+): Promise<Transaction> {
+  const passphrase = networkPassphrase ?? txWithSignedAuth.networkPassphrase
+  const signedAuth = extractInvokeHostAuth(txWithSignedAuth).map((e) =>
+    xdr.SorobanAuthorizationEntry.fromXDR(e.toXDR())
+  )
+
+  const sim = await server.simulateTransaction(txWithSignedAuth)
+  assertSimulationSuccess(sim)
+
+  let prepared = rpc.assembleTransaction(txWithSignedAuth, sim).build()
+  if (signedAuth.length > 0) {
+    prepared = replaceInvokeHostAuth(prepared, signedAuth, passphrase)
+  }
+  return prepared
+}
+
 /**
  * Simulates an unsigned Soroban tx and returns the fully built transaction (still unsigned).
  * Caller signs the result, then {@link sendAndPollSoroban}.
+ *
+ * If the transaction already has signed address-credential auth, runs an
+ * {@link assembleWithEnforcingSimulation} pass instead so `__check_auth` footprint
+ * is not under-reported (issue #61).
  */
 export async function simulateAndAssembleSoroban(
   server: rpc.Server,
   transaction: Transaction
 ): Promise<Transaction> {
+  if (txHasSignedAddressAuth(transaction)) {
+    return assembleWithEnforcingSimulation(server, transaction)
+  }
+
   const sim = await server.simulateTransaction(transaction)
-  if (rpc.Api.isSimulationError(sim)) {
-    const err = sim.error
-    const msg =
-      typeof err === 'string'
-        ? err
-        : err && typeof err === 'object' && 'message' in err
-          ? String((err as { message?: unknown }).message)
-          : JSON.stringify(err)
-    throw new Error(msg || 'Simulation failed')
-  }
-  if (!rpc.Api.isSimulationSuccess(sim)) {
-    throw new Error('Unexpected simulation response')
-  }
-  const txData = sim.transactionData
-  if (txData == null) {
-    throw new Error('Token SAC does not exist on this network — cannot transfer this asset.')
-  }
+  assertSimulationSuccess(sim)
   return rpc.assembleTransaction(transaction, sim).build()
 }
 
