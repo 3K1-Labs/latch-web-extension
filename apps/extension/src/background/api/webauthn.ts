@@ -1,4 +1,6 @@
 import type {
+  AttachPasskeySignerRequest,
+  AttachPasskeySignerResponse,
   BackendWebauthnAuthenticationFinishRequest,
   BackendWebauthnAuthenticationFinishResponse,
   BackendWebauthnBeginResponse,
@@ -145,6 +147,27 @@ export async function passkeyRegistrationFinish(
 ): Promise<BackendWebauthnRegistrationFinishResponse> {
   return passkeyFinish<BackendWebauthnRegistrationFinishResponse>(
     '/api/webauthn/registration/finish',
+    'registration',
+    req
+  )
+}
+
+/**
+ * Attach a freshly registered passkey to an existing smart account as a backup
+ * signer. Same ceremony verification as registration finish, but the API never
+ * deploys here: a deploy would derive a salt from this credential's own key
+ * data and hand the user a second wallet instead of a second signer.
+ *
+ * The signer is not authorized until `add_signer` lands on-chain.
+ */
+export async function attachPasskeySigner(
+  smartAccountAddress: string,
+  req: AttachPasskeySignerRequest
+): Promise<AttachPasskeySignerResponse> {
+  const address = smartAccountAddress.trim()
+  if (!address) throw new Error('Missing smart account address for passkey attach.')
+  return passkeyFinish<AttachPasskeySignerResponse>(
+    `/api/accounts/${encodeURIComponent(address)}/signers/passkey/register`,
     'registration',
     req
   )

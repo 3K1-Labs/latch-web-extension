@@ -5,7 +5,7 @@ import type {
   SwapQuotePayload,
 } from '@latch/types'
 
-import { finalizePendingWalletOutcome, type WalletOutcomeKind } from '../../lib/walletOutcome'
+import type { WalletOutcomeKind } from '../../lib/walletOutcome'
 import type { OkFn } from '../messageResponse'
 import type { SendDraft } from '../../ui/types/send'
 import { recordKnownSacProbe } from '../knownSacProbes'
@@ -15,28 +15,7 @@ import { executeDappExternalSignInBackground } from './executeDappSign'
 import { executeMultisigPasskeyApproveInBackground } from './executeMultisigApprove'
 import { executeSendSubmitInBackground } from './executeSendSubmit'
 import { executeSwapConfirmInBackground } from './executeSwapConfirm'
-import { restoreWalletUiAfterConfirm } from './restoreWalletUi'
-
-async function finishOutcome(args: {
-  surface?: 'popup' | 'sidepanel'
-  kind: WalletOutcomeKind
-  status: 'success' | 'failure'
-  error?: string
-  payload?: Record<string, unknown>
-}): Promise<void> {
-  if (args.surface !== 'popup') return
-  await finalizePendingWalletOutcome({
-    kind: args.kind,
-    status: args.status,
-    error: args.error,
-    payload: args.payload,
-  })
-  try {
-    await restoreWalletUiAfterConfirm()
-  } catch (e) {
-    console.warn('[latch:background] restoreWalletUiAfterConfirm failed', e)
-  }
-}
+import { finishOutcome } from './finishOutcome'
 
 /** Returns true if the message type was handled. */
 export async function tryHandleConfirmMessage(

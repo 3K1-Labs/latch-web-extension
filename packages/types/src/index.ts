@@ -510,10 +510,31 @@ export interface BackendWebauthnBeginResponse {
   options: unknown
 }
 
+/**
+ * Sequence number the next passkey should be named with ("Latch Wallet 3").
+ * Peeked before a registration ceremony, then confirmed once the passkey
+ * exists — see peekNextPasskeySeq / confirmPasskeySeq in the background.
+ */
+export interface PasskeyNextSeqResponse {
+  seq: number
+}
+
+export interface PasskeyConfirmSeqRequest {
+  seq: number
+}
+
 export interface BackendWebauthnRegistrationFinishRequest {
   response: unknown
   /** Stellar network; omit → API defaults to testnet. */
   network?: Network
+  /**
+   * Passkey label this ceremony used (the same string sent on begin) and its
+   * sequence number, for the API to persist into the passkey recovery index so
+   * a fresh device recovers the name too. Optional and ignored by the API until
+   * LATCH_BACKEND_WEBAUTHN_FINISH_LABEL.md ships.
+   */
+  displayName?: string
+  seq?: number
 }
 
 export interface BackendWebauthnRegistrationFinishResponse {
@@ -752,6 +773,8 @@ export type MessageType =
   | 'BUILD_DELEGATED_TX'
   | 'SUBMIT_TX_DELEGATED'
   | 'SUBMIT_TX_WEBAUTHN'
+  | 'PASSKEY_NEXT_SEQ'
+  | 'PASSKEY_CONFIRM_SEQ'
   | 'PASSKEY_REG_BEGIN'
   | 'PASSKEY_REG_FINISH'
   | 'PASSKEY_AUTH_BEGIN'
@@ -796,6 +819,10 @@ export type MessageType =
   | 'EXECUTE_DAPP_EXTERNAL_SIGN'
   | 'EXECUTE_MULTISIG_PASSKEY_APPROVE'
   | 'RECORD_KNOWN_SAC_PROBE'
+  | 'LIST_ACCOUNT_SIGNERS'
+  | 'ATTACH_BACKUP_PASSKEY'
+  | 'EXECUTE_ADD_BACKUP_SIGNER'
+  | 'EXECUTE_REMOVE_ACCOUNT_SIGNER'
   | 'MULTISIG_CREATE_DRAFT'
   | 'MULTISIG_GET_ACTIVE_DRAFT'
   | 'MULTISIG_ADD_DRAFT_MEMBER'
@@ -899,6 +926,8 @@ export type BackgroundRequestPayloadByType = {
   BUILD_DELEGATED_TX: BuildDelegatedTxRequest
   SUBMIT_TX_DELEGATED: SubmitDelegatedTxRequest
   SUBMIT_TX_WEBAUTHN: SubmitWebauthnTxRequest
+  PASSKEY_NEXT_SEQ: undefined
+  PASSKEY_CONFIRM_SEQ: PasskeyConfirmSeqRequest
   PASSKEY_REG_BEGIN: { displayName?: string } | undefined
   PASSKEY_REG_FINISH: BackendWebauthnRegistrationFinishRequest
   PASSKEY_AUTH_BEGIN: undefined
@@ -947,7 +976,7 @@ export type BackgroundRequestPayloadByType = {
     build: BuildSendTxResponse
     submit?: boolean
     surface?: 'popup' | 'sidepanel'
-    outcomeKind?: 'swap' | 'send' | 'dapp' | 'multisigApprove'
+    outcomeKind?: 'swap' | 'send' | 'dapp' | 'multisigApprove' | 'accountSigners'
   }
   EXECUTE_SWAP_CONFIRM: {
     accountId: string
@@ -987,6 +1016,10 @@ export type BackgroundRequestPayloadByType = {
     outcomePayload?: Record<string, unknown>
   }
   RECORD_KNOWN_SAC_PROBE: RecordKnownSacProbeRequest
+  LIST_ACCOUNT_SIGNERS: import('./accountSigners').ListAccountSignersRequest | undefined
+  ATTACH_BACKUP_PASSKEY: import('./accountSigners').AttachBackupPasskeyRequest
+  EXECUTE_ADD_BACKUP_SIGNER: import('./accountSigners').ExecuteAddBackupSignerRequest
+  EXECUTE_REMOVE_ACCOUNT_SIGNER: import('./accountSigners').ExecuteRemoveAccountSignerRequest
   MULTISIG_CREATE_DRAFT: undefined
   MULTISIG_GET_ACTIVE_DRAFT: undefined
   MULTISIG_ADD_DRAFT_MEMBER: import('./multisig').MultisigDraftMemberActionRequest
@@ -1153,6 +1186,10 @@ export type BackgroundResponseDataByType = {
   }
   EXECUTE_MULTISIG_PASSKEY_APPROVE: import('./multisig').MultisigProposalDetail
   RECORD_KNOWN_SAC_PROBE: undefined
+  LIST_ACCOUNT_SIGNERS: import('./accountSigners').ListAccountSignersResponse
+  ATTACH_BACKUP_PASSKEY: import('./accountSigners').AttachBackupPasskeyResponse
+  EXECUTE_ADD_BACKUP_SIGNER: import('./accountSigners').ExecuteAddBackupSignerResponse
+  EXECUTE_REMOVE_ACCOUNT_SIGNER: import('./accountSigners').ExecuteRemoveAccountSignerResponse
   MULTISIG_CREATE_DRAFT: import('./multisig').CreateMultisigDraftResponse
   MULTISIG_GET_ACTIVE_DRAFT: import('./multisig').GetActiveMultisigDraftResponse
   MULTISIG_ADD_DRAFT_MEMBER: import('./multisig').MultisigDraft
@@ -1230,3 +1267,4 @@ export * from './externalSign'
 export * from './swap'
 export * from './multisig'
 export * from './cosign'
+export * from './accountSigners'

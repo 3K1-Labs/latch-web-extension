@@ -3,6 +3,7 @@ import { startRegistration } from '@simplewebauthn/browser'
 
 import type {
   BackendWebauthnBeginResponse,
+  BackendWebauthnRegistrationFinishRequest,
   BackendWebauthnRegistrationFinishResponse,
   GetAccountsResponse,
   SetSetupStateRequest,
@@ -15,14 +16,16 @@ import {
   assertRegistrationCeremonyForFinish,
   enrichWebauthnRpIdHashErrorMessage,
   formatWebauthnBrowserError,
-  nextPasskeyAccountDisplayName,
   prepareRegistrationOptionsForCreate,
 } from '../webauthn/passkey'
+import { reservePasskeyName } from '../webauthn/passkeyName'
 
 type PrefetchState = {
   kind: 'registration'
   optionsJSON: unknown
   displayName: string
+  seq: number
+  commitSeq: () => Promise<void>
 }
 
 export function useOnboardingPasskeyRegistration(active: boolean) {
@@ -57,7 +60,12 @@ export function useOnboardingPasskeyRegistration(active: boolean) {
         if (cancelled) return
         if (!accountsRes.ok) throw new Error(friendlyError(accountsRes.error))
 
-        const displayName = nextPasskeyAccountDisplayName(accountsRes.data?.accounts ?? [])
+        // First wallet has no user-chosen label yet, so this is "Latch Wallet N".
+        const reserved = await reservePasskeyName({
+          fallbackAccounts: accountsRes.data?.accounts ?? [],
+        })
+        if (cancelled) return
+        const displayName = reserved.displayName
         const begin = await sendToBackground<
           { displayName?: string },
           BackendWebauthnBeginResponse
@@ -70,7 +78,13 @@ export function useOnboardingPasskeyRegistration(active: boolean) {
 
         const optionsJSON = prepareRegistrationOptionsForCreate(begin.data?.options, displayName)
         assertBeginOptionsRpIdMatchesCanonicalDomain(optionsJSON)
-        prefetchRef.current = { kind: 'registration', optionsJSON, displayName }
+        prefetchRef.current = {
+          kind: 'registration',
+          optionsJSON,
+          displayName,
+          seq: reserved.seq,
+          commitSeq: reserved.commit,
+        }
         if (!cancelled) setPrefetchReady(true)
       } catch (e) {
         if (!cancelled) {
@@ -114,11 +128,11 @@ export function useOnboardingPasskeyRegistration(active: boolean) {
       assertRegistrationCeremonyForFinish(reg)
 
       const res = await sendToBackground<
-        { response: unknown },
+        BackendWebauthnRegistrationFinishRequest,
         BackendWebauthnRegistrationFinishResponse & { account: StoredAccount }
       >({
         type: 'PASSKEY_REG_FINISH',
-        payload: { response: reg },
+        payload: { response: reg, displayName: pre.displayName, seq: pre.seq },
       })
 
       if (!res.ok) {
@@ -130,6 +144,10 @@ export function useOnboardingPasskeyRegistration(active: boolean) {
           })
         )
       }
+
+      // The passkey now exists in the authenticator under this number, so retire
+      // it. Only after finish: an abandoned ceremony must not burn a number.
+      await pre.commitSeq()
 
       const account = res.data!.account
       const setupReq: SetSetupStateRequest = {

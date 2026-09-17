@@ -1,4 +1,3 @@
-import type { StoredAccount } from '@latch/types'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Encoder } from 'cbor-x'
 import { bytesToBase64Url, bytesToHex, concatBytes } from './utils'
@@ -10,8 +9,6 @@ import {
   getWebauthnCeremonyTypeFromCredential,
   getWebauthnRpIdFromBeginOptions,
   latchWebauthnRpId,
-  nextPasskeyAccountDisplayName,
-  nextPasskeyRegistrationDisplayName,
   prepareRegistrationOptionsForCreate,
   prepareAuthenticationOptionsForGet,
   prepareDiscoverableAuthenticationOptions,
@@ -29,23 +26,9 @@ import { DEFAULT_WEBAUTHN_RP_ID } from '../lib/latchEnv'
 
 const CANONICAL_RP = DEFAULT_WEBAUTHN_RP_ID
 
-function account(mode: StoredAccount['mode'], id: string): StoredAccount {
-  return { id, mode, smartAccountAddress: 'SADDR', createdAt: 0 }
-}
-
 describe('webauthn/passkey', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
-  })
-
-  it('nextPasskeyAccountDisplayName is 1-based and counts only passkey accounts', () => {
-    expect(nextPasskeyAccountDisplayName([])).toBe('Latch account 1')
-    expect(nextPasskeyAccountDisplayName([account('mnemonic', '1'), account('passkey', '2')])).toBe(
-      'Latch account 2'
-    )
-    expect(nextPasskeyAccountDisplayName([account('passkey', '1'), account('passkey', '2')])).toBe(
-      'Latch account 3'
-    )
   })
 
   it('latchWebauthnRpId defaults to the shared HTTPS domain', () => {
@@ -333,12 +316,6 @@ describe('webauthn/passkey', () => {
         response: { clientDataJSON: getClientData, authenticatorData: 'a', signature: 's' },
       })
     ).toBe('webauthn.get')
-  })
-
-  it('nextPasskeyRegistrationDisplayName adds optional context', () => {
-    expect(nextPasskeyRegistrationDisplayName([], 'Team vault')).toBe(
-      'Latch account 1 · Team vault'
-    )
   })
 
   it('prepareRegistrationOptionsForCreate requires registration options and preserves server authenticatorSelection', () => {

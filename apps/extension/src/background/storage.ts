@@ -1,5 +1,6 @@
 import type {
   AccountMode,
+  AccountSignerRecord,
   DappPermission,
   GetAccountsResponse,
   MultisigDraftMeta,
@@ -34,6 +35,21 @@ const STORAGE_KEYS = {
    * wallet would be re-imported by the next multisig sync.
    */
   removedAccounts: 'latch.removedAccounts.byNetwork',
+  /**
+   * Backup passkey signers this install attached, keyed by smart account
+   * address per network. The API has no per-account signer list, so this is
+   * the only record of which credentials sign for a wallet — including ones
+   * that are authorized on-chain but still waiting on a confirm retry.
+   */
+  accountSigners: 'latch.accountSigners.byNetwork',
+  /**
+   * Highest passkey sequence number this install has ever used for a WebAuthn
+   * `user.name` / `user.displayName` ("Latch Wallet 3"). Deliberately NOT part
+   * of clearSession(): logging out drops local accounts but cannot delete the
+   * passkeys from iCloud Keychain / Google Password Manager, so a reused number
+   * would put two identically named credentials in the user's picker.
+   */
+  passkeySeq: 'latch.passkeySeq',
 } as const
 
 type DappPermissionsStore = Record<string, DappPermission[] | undefined>
@@ -42,6 +58,9 @@ type AccountsByNetwork = Partial<Record<Network, StoredAccount[]>>
 type ActiveIdByNetwork = Partial<Record<Network, string | undefined>>
 type SetupStateByNetwork = Partial<Record<Network, string | undefined>>
 type RemovedAccountsByNetwork = Partial<Record<Network, string[]>>
+/** smart account address → the signers this install knows about. */
+type AccountSignersByAddress = Record<string, AccountSignerRecord[] | undefined>
+type AccountSignersByNetwork = Partial<Record<Network, AccountSignersByAddress>>
 
 export function storageKeys() {
   return STORAGE_KEYS
@@ -426,6 +445,51 @@ export async function dismissMultisigProposalsBanner(accountId: string): Promise
   return next
 }
 
+/** Passkey accounts across every network bucket, for the one-time seq seed. */
+async function countStoredPasskeyAccounts(): Promise<number> {
+  await ensureAccountsPartitionMigrated()
+  const res = await chrome.storage.local.get([STORAGE_KEYS.accountsByNetwork])
+  const byNetwork = (res[STORAGE_KEYS.accountsByNetwork] as AccountsByNetwork | undefined) ?? {}
+  return Object.values(byNetwork).reduce(
+    (n, accounts) => n + (accounts ?? []).filter((a) => a.mode === 'passkey').length,
+    0
+  )
+}
+
+async function readPasskeySeq(): Promise<number> {
+  const res = await chrome.storage.local.get([STORAGE_KEYS.passkeySeq])
+  const stored = res[STORAGE_KEYS.passkeySeq]
+  if (typeof stored === 'number' && Number.isFinite(stored) && stored >= 0) {
+    return Math.floor(stored)
+  }
+  // An install that already created passkeys under the old account-count naming
+  // starts above them, so the next name cannot land on a number the credential
+  // manager is already showing.
+  const seeded = await countStoredPasskeyAccounts()
+  await chrome.storage.local.set({ [STORAGE_KEYS.passkeySeq]: seeded })
+  return seeded
+}
+
+/**
+ * Sequence number the next passkey should use. Deliberately does not advance
+ * the counter: registration begin is prefetched on screen mount and re-run on
+ * every retry, so incrementing here would burn a number every time a user
+ * merely opens the create screen. Callers call confirmPasskeySeq() once the
+ * passkey actually exists.
+ */
+export async function peekNextPasskeySeq(): Promise<number> {
+  return (await readPasskeySeq()) + 1
+}
+
+/** Record that `seq` was used. Monotonic, so an out-of-order commit cannot rewind. */
+export async function confirmPasskeySeq(seq: number): Promise<void> {
+  if (!Number.isFinite(seq) || seq <= 0) return
+  const current = await readPasskeySeq()
+  const next = Math.max(current, Math.floor(seq))
+  if (next === current) return
+  await chrome.storage.local.set({ [STORAGE_KEYS.passkeySeq]: next })
+}
+
 async function readRemovedAccounts(network: Network): Promise<string[]> {
   const res = await chrome.storage.local.get([STORAGE_KEYS.removedAccounts])
   const byNetwork =
@@ -467,6 +531,72 @@ export async function removeRemovedAccountAddress(smartAccountAddress: string): 
     network,
     current.filter((a) => a !== addr)
   )
+}
+
+async function readAccountSignersMap(network: Network): Promise<AccountSignersByAddress> {
+  const res = await chrome.storage.local.get([STORAGE_KEYS.accountSigners])
+  const byNetwork = (res[STORAGE_KEYS.accountSigners] as AccountSignersByNetwork | undefined) ?? {}
+  return byNetwork[network] ?? {}
+}
+
+async function writeAccountSignersMap(
+  network: Network,
+  byAddress: AccountSignersByAddress
+): Promise<void> {
+  const res = await chrome.storage.local.get([STORAGE_KEYS.accountSigners])
+  const byNetwork = (res[STORAGE_KEYS.accountSigners] as AccountSignersByNetwork | undefined) ?? {}
+  await chrome.storage.local.set({
+    [STORAGE_KEYS.accountSigners]: { ...byNetwork, [network]: byAddress },
+  })
+}
+
+/** Backup signers this install attached to `smartAccountAddress` (active network). */
+export async function getAccountSignerRecords(
+  smartAccountAddress: string
+): Promise<AccountSignerRecord[]> {
+  const addr = smartAccountAddress.trim()
+  if (!addr) return []
+  const byAddress = await readAccountSignersMap(await getActiveNetwork())
+  return byAddress[addr] ?? []
+}
+
+/** Insert or merge one signer record, keyed by credential id. */
+export async function upsertAccountSignerRecord(
+  smartAccountAddress: string,
+  record: AccountSignerRecord
+): Promise<AccountSignerRecord[]> {
+  const addr = smartAccountAddress.trim()
+  const credentialId = record.credentialId.trim()
+  if (!addr || !credentialId) return []
+  const network = await getActiveNetwork()
+  const byAddress = await readAccountSignersMap(network)
+  const current = byAddress[addr] ?? []
+  const existing = current.find((s) => s.credentialId === credentialId)
+  const merged: AccountSignerRecord = { ...existing, ...record, credentialId }
+  // `pendingConfirm` is only meaningful while the confirm call is outstanding;
+  // an explicit undefined must clear it rather than fall back to the old hash.
+  if (record.pendingConfirm === undefined) delete merged.pendingConfirm
+  const next = existing
+    ? current.map((s) => (s.credentialId === credentialId ? merged : s))
+    : [...current, merged]
+  await writeAccountSignersMap(network, { ...byAddress, [addr]: next })
+  return next
+}
+
+export async function deleteAccountSignerRecord(
+  smartAccountAddress: string,
+  credentialId: string
+): Promise<AccountSignerRecord[]> {
+  const addr = smartAccountAddress.trim()
+  const credId = credentialId.trim()
+  if (!addr || !credId) return []
+  const network = await getActiveNetwork()
+  const byAddress = await readAccountSignersMap(network)
+  const current = byAddress[addr] ?? []
+  const next = current.filter((s) => s.credentialId !== credId)
+  if (next.length === current.length) return current
+  await writeAccountSignersMap(network, { ...byAddress, [addr]: next })
+  return next
 }
 
 /**
@@ -610,6 +740,7 @@ export async function clearSession() {
     STORAGE_KEYS.dappPermissions,
     STORAGE_KEYS.pendingDappRequests,
     STORAGE_KEYS.removedAccounts,
+    STORAGE_KEYS.accountSigners,
   ])
 }
 

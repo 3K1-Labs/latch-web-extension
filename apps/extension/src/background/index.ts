@@ -26,6 +26,7 @@ import { tryHandleNetworkMessage } from './network/handlers'
 import { tryHandleOnboardingMessage } from './onboarding/handlers'
 import { tryHandleReadsMessage } from './reads/handlers'
 import { abortRequest } from './requestRegistry'
+import { tryHandleSignersMessage } from './signers/handlers'
 import { tryHandleSwapMessage } from './swap/handlers'
 import { tryHandleTxMessage } from './tx/handlers'
 import { tryHandleV1AuthMessage } from './v1Auth/handlers'
@@ -55,6 +56,9 @@ chrome.runtime.onMessage.addListener((rawMessage: BackgroundMessage, _sender, se
       return
     }
     if (await tryHandleAccountsMessage(message, sendResponse, ok)) {
+      return
+    }
+    if (await tryHandleSignersMessage(message, sendResponse, ok)) {
       return
     }
     if (await tryHandleConfirmMessage(message, sendResponse, ok)) {

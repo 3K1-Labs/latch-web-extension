@@ -57,6 +57,7 @@ export function SettingsScreen({
   onAddExistingMultisig,
   onDeleteAccount,
   onOpenMultisigWallets,
+  onOpenAccountSigners,
   onOpenMultisigProposals,
   pendingMultisigProposalCount,
   networkLabel,
@@ -81,6 +82,7 @@ export function SettingsScreen({
   onAddExistingMultisig?: () => void
   onDeleteAccount?: (accountId: string) => Promise<void>
   onOpenMultisigWallets?: () => void
+  onOpenAccountSigners?: () => void
   onOpenMultisigProposals?: () => void
   pendingMultisigProposalCount?: number
   networkLabel: string
@@ -259,10 +261,13 @@ export function SettingsScreen({
               icon={<img src={passwordIconUrl} alt="" className={rowIconClass} />}
               label="Password"
             />
-            <SettingItem
-              icon={<img src={signersIconUrl} alt="" className={rowIconClass} />}
-              label="Signers"
-            />
+            {onOpenAccountSigners ? (
+              <SettingItem
+                icon={<img src={signersIconUrl} alt="" className={rowIconClass} />}
+                label="Signers"
+                onClick={onOpenAccountSigners}
+              />
+            ) : null}
             <SettingItem
               icon={<img src={permissionsIconUrl} alt="" className={rowIconClass} />}
               label="Permissions"
