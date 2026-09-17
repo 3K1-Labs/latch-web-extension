@@ -20,6 +20,7 @@ const LATCH_PROVIDER_EVENT = 'LATCH_PROVIDER_EVENT'
 
 const ACCOUNTS_KEY = 'latch.accounts'
 const ACTIVE_ACCOUNT_ID_KEY = 'latch.activeAccountId'
+const DISCONNECTED_ORIGINS_KEY = 'latch.dappDisconnectedOrigins'
 
 type ProviderBridgeMessage = {
   source: typeof LATCH_PROVIDER_REQUEST
@@ -85,6 +86,27 @@ async function emitActiveAccountFromStorage(): Promise<void> {
 }
 
 injectInpageProvider()
+
+/**
+ * After `disconnect()`, Grant Access is sticky-blocked for this origin. A fresh
+ * document (reload / new tab) clears that block so a real connect can prompt.
+ * Only message when this origin is in the set — avoid waking the SW on every page.
+ */
+void (async () => {
+  try {
+    const origin = window.location.origin
+    if (!origin || origin === 'null') return
+    const bag = await chrome.storage.local.get([DISCONNECTED_ORIGINS_KEY])
+    const list = bag[DISCONNECTED_ORIGINS_KEY]
+    if (!Array.isArray(list) || !list.includes(origin)) return
+    await chrome.runtime.sendMessage({
+      type: 'DAPP_PAGE_SESSION_START',
+      payload: { origin },
+    })
+  } catch {
+    // Extension context invalidated or storage unavailable — ignore.
+  }
+})()
 
 window.addEventListener(
   'message',

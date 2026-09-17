@@ -95,6 +95,9 @@ wrapper in bundled dApps.
 - `getPublicKey()` → smart-account `C…` string
 - `signTransaction({ xdr, network, accountToSign, submit? })`
 - `getNetwork()` → `'testnet' | 'mainnet'`
+- `disconnect()` → revokes this origin's access; the next `getPublicKey()` / `getAddress()`
+  re-prompts GrantAccess. Accounts and other origins are untouched, and no event is emitted,
+  so clear your own session state. `isConnected()` still only means "extension installed".
 
 **SEP-0043 interop (added alongside native methods):**
 

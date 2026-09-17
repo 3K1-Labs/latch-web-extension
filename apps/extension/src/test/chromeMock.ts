@@ -162,6 +162,7 @@ export function createChromeMock() {
         return currentWindow
       },
       async update() {},
+      async remove() {},
       create(
         _opts: Record<string, unknown>,
         callback?: (win?: { id?: number; type?: string }) => void
@@ -172,6 +173,10 @@ export function createChromeMock() {
         if (runtimeApi) runtimeApi.lastError = lastError
         if (callback) callback(lastError ? undefined : win)
         return Promise.resolve(lastError ? undefined : win)
+      },
+      onRemoved: {
+        addListener() {},
+        removeListener() {},
       },
     },
     sidePanel: {

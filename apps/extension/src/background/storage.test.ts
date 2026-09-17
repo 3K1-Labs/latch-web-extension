@@ -1,5 +1,7 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import {
+  clearDappPermissions,
+  clearDappOriginDisconnected,
   clearSession,
   confirmPasskeySeq,
   createAccount,
@@ -8,11 +10,15 @@ import {
   getAccounts,
   getAccountSignerRecords,
   getAccountsForNetwork,
+  getDappPermissions,
   getRemovedAccountAddresses,
   getSetupStateForNetwork,
+  isDappOriginDisconnected,
+  markDappOriginDisconnected,
   peekNextPasskeySeq,
   removeRemovedAccountAddress,
   resetAccountsPartitionMigrationForTests,
+  setDappPermissions,
   upsertAccountSignerRecord,
 } from './storage'
 import { setActiveNetwork, setCachedActiveNetwork } from './network/config'
@@ -296,6 +302,64 @@ describe('background/storage', () => {
       await clearSession()
 
       expect(await getAccountSignerRecords('CWALLET')).toEqual([])
+    })
+  })
+
+  describe('dapp permissions', () => {
+    it('clearDappPermissions revokes one origin and leaves the others connected', async () => {
+      await setDappPermissions('https://a.example', ['getPublicKey'])
+      await setDappPermissions('https://b.example', ['getPublicKey'])
+
+      await clearDappPermissions('https://a.example')
+
+      expect(await getDappPermissions('https://a.example')).toEqual([])
+      expect(await getDappPermissions('https://b.example')).toEqual(['getPublicKey'])
+    })
+
+    it('drops the origin key entirely, so a connected-sites list has no empty rows', async () => {
+      await setDappPermissions('https://a.example', ['getPublicKey'])
+
+      await clearDappPermissions('https://a.example')
+
+      const stored = await chrome.storage.local.get(['latch.dappPermissions'])
+      expect(stored['latch.dappPermissions']).toEqual({})
+    })
+
+    it('is idempotent for an origin that was never connected', async () => {
+      await expect(clearDappPermissions('https://never.example')).resolves.toBeUndefined()
+      expect(await getDappPermissions('https://never.example')).toEqual([])
+    })
+
+    it('is wiped wholesale by clearSession, since logout is a full local wipe', async () => {
+      await setDappPermissions('https://a.example', ['getPublicKey'])
+      await setDappPermissions('https://b.example', ['getPublicKey'])
+
+      await clearSession()
+
+      expect(await getDappPermissions('https://a.example')).toEqual([])
+      expect(await getDappPermissions('https://b.example')).toEqual([])
+    })
+  })
+
+  describe('dapp disconnected origins', () => {
+    it('mark / is / clear round-trip', async () => {
+      expect(await isDappOriginDisconnected('https://a.example')).toBe(false)
+      await markDappOriginDisconnected('https://a.example')
+      expect(await isDappOriginDisconnected('https://a.example')).toBe(true)
+      await clearDappOriginDisconnected('https://a.example')
+      expect(await isDappOriginDisconnected('https://a.example')).toBe(false)
+    })
+
+    it('setDappPermissions clears the sticky disconnect flag', async () => {
+      await markDappOriginDisconnected('https://a.example')
+      await setDappPermissions('https://a.example', ['getPublicKey'])
+      expect(await isDappOriginDisconnected('https://a.example')).toBe(false)
+    })
+
+    it('is wiped by clearSession', async () => {
+      await markDappOriginDisconnected('https://a.example')
+      await clearSession()
+      expect(await isDappOriginDisconnected('https://a.example')).toBe(false)
     })
   })
 

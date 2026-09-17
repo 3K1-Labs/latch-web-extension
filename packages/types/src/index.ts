@@ -620,6 +620,19 @@ export interface SetDappPermissionsRequest {
   allowed: DappPermission[]
 }
 
+/** `window.latch.disconnect()` — revokes the origin allowlist entry only. */
+export interface DappDisconnectRequest {
+  origin: string
+}
+
+/**
+ * Content script signals a fresh document for an origin that was previously
+ * disconnected, so Grant Access may prompt again on the next connect call.
+ */
+export interface DappPageSessionStartRequest {
+  origin: string
+}
+
 export interface DappGetPublicKeyResponse {
   publicKey: string
 }
@@ -789,6 +802,8 @@ export type MessageType =
   | 'DAPP_GET_PUBLIC_KEY'
   | 'DAPP_SIGN_TRANSACTION'
   | 'DAPP_OPEN_SIGN_REQUEST'
+  | 'DAPP_DISCONNECT'
+  | 'DAPP_PAGE_SESSION_START'
   | 'MIGRATION_DISCOVER'
   | 'MIGRATION_SWEEP_XLM'
   | 'MIGRATION_SWEEP_TOKEN'
@@ -942,6 +957,8 @@ export type BackgroundRequestPayloadByType = {
   DAPP_GET_PUBLIC_KEY: GetDappPermissionsRequest
   DAPP_SIGN_TRANSACTION: DappSignTransactionRequest
   DAPP_OPEN_SIGN_REQUEST: import('./externalSign').DappOpenSignRequestPayload
+  DAPP_DISCONNECT: DappDisconnectRequest
+  DAPP_PAGE_SESSION_START: DappPageSessionStartRequest
   MIGRATION_DISCOVER: MigrationDiscoverRequest
   MIGRATION_SWEEP_XLM: MigrationSweepXlmRequest
   MIGRATION_SWEEP_TOKEN: MigrationSweepTokenRequest
@@ -1144,6 +1161,8 @@ export type BackgroundResponseDataByType = {
   DAPP_GET_PUBLIC_KEY: DappGetPublicKeyResponse
   DAPP_SIGN_TRANSACTION: DappSignTransactionResponse
   DAPP_OPEN_SIGN_REQUEST: undefined
+  DAPP_DISCONNECT: undefined
+  DAPP_PAGE_SESSION_START: undefined
   MIGRATION_DISCOVER: MigrationDiscovery
   MIGRATION_SWEEP_XLM: MigrationSweepResult
   MIGRATION_SWEEP_TOKEN: MigrationSweepResult

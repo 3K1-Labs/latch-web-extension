@@ -284,7 +284,7 @@ export function LatchRoot({ surface }: { surface: Surface }) {
   const containerClass =
     surface === 'sidepanel'
       ? 'h-screen w-full min-w-[320px] overflow-x-hidden'
-      : 'h-[600px] w-[360px] overflow-hidden'
+      : 'mx-auto h-[600px] w-[360px] overflow-hidden'
   const flowHeightClass = surface === 'sidepanel' ? 'flex-1 min-h-0' : 'h-[520px]'
   const showTopHeader = page === 'main' && !needsMnemonicUnlock && route === 'migration'
   // Home shell waits on portfolio only. History (Horizon + SAC) can be slow; gating

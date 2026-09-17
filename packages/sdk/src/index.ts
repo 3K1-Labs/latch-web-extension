@@ -50,6 +50,13 @@ export interface LatchSDK {
   getAddress(): Promise<Sep0043GetAddressResponse>
   getNetworkDetails(): Promise<Sep0043GetNetworkResponse>
 
+  /**
+   * Revoke Latch access for the current origin. The next `getPublicKey()` /
+   * `getAddress()` prompts the user again. Accounts and other origins are
+   * untouched, and Latch emits no event — clear your own session state.
+   */
+  disconnect(): Promise<void>
+
   /** Subscribe to active account / network changes */
   on?(event: LatchProviderEventName, handler: (payload: LatchAccountChangedPayload) => void): void
 
@@ -69,6 +76,7 @@ declare global {
       getNetwork(): Promise<Network>
       getAddress(): Promise<Sep0043GetAddressResponse>
       getNetworkDetails(): Promise<Sep0043GetNetworkResponse>
+      disconnect?(): Promise<void>
       on?(
         event: LatchProviderEventName,
         handler: (payload: LatchAccountChangedPayload) => void
@@ -120,6 +128,12 @@ export function getLatchSDK(): LatchSDK {
     },
     async getNetworkDetails() {
       return await requireLatch().getNetworkDetails()
+    },
+    async disconnect() {
+      const latch = requireLatch()
+      // Older extension builds have no disconnect; treat teardown as a no-op.
+      if (!latch.disconnect) return
+      await latch.disconnect()
     },
     on(event, handler) {
       requireLatch().on?.(event, handler)

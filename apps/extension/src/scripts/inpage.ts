@@ -139,6 +139,7 @@ interface LatchProvider {
   getAddress(): Promise<Sep0043GetAddressResponse>
   getNetworkDetails(): Promise<Sep0043GetNetworkResponse>
   openSignRequest(params: OpenSignRequestParams): Promise<void>
+  disconnect(): Promise<void>
   on(event: ProviderEventName, handler: ProviderEventHandler): void
   off(event: ProviderEventName, handler: ProviderEventHandler): void
   [LATCH_PROVIDER_MARK]?: true
@@ -251,6 +252,13 @@ function installLatch() {
           submit: params.submit,
           origin: params.origin ?? window.location.origin,
         },
+      })
+    },
+    async disconnect() {
+      // Revokes this origin's allowlist entry only. Latch emits no event; the
+      // dapp clears its own session once this resolves.
+      await sendToBackground('DAPP_DISCONNECT', {
+        origin: window.location.origin,
       })
     },
     on(event, handler) {
