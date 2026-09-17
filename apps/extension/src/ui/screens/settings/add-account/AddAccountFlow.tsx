@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
   BackendWebauthnAuthenticationFinishResponse,
   BackendWebauthnBeginResponse,
+  BackendWebauthnRegistrationFinishRequest,
   BackendWebauthnRegistrationFinishResponse,
   GetAccountsResponse,
   ImportMnemonicAccountRequest,
@@ -17,10 +18,10 @@ import {
   assertBeginOptionsRpIdMatchesCanonicalDomain,
   assertRegistrationCeremonyForFinish,
   enrichWebauthnRpIdHashErrorMessage,
-  nextPasskeyAccountDisplayName,
   prepareDiscoverableAuthenticationOptions,
   prepareRegistrationOptionsForCreate,
 } from '../../../webauthn/passkey'
+import { reservePasskeyName } from '../../../webauthn/passkeyName'
 import { runWebauthnCredential } from '../../../webauthn/runWebauthnCredential'
 import { AddAccountChooseMethodScreen, type AddAccountMethod } from './AddAccountChooseMethodScreen'
 import { AddAccountCreatePasskeyScreen } from './AddAccountCreatePasskeyScreen'
@@ -37,9 +38,7 @@ type AddAccountStep =
   | 'createAccount'
   | 'success'
 
-type PendingPasskey =
-  | { kind: 'authentication'; optionsJSON: unknown; assertion: unknown }
-  | { kind: 'registration'; account: StoredAccount }
+type PendingPasskey = { kind: 'authentication'; optionsJSON: unknown; assertion: unknown }
 
 type PendingRecovery = {
   mnemonic: string
@@ -70,13 +69,24 @@ export function AddAccountFlow({
   const [passkeyBusy, setPasskeyBusy] = useState(false)
   const [passkeyPrefetchNonce, setPasskeyPrefetchNonce] = useState(0)
   const passkeyPrefetchRef = useRef<
-    | { kind: 'registration'; optionsJSON: unknown; displayName: string }
+    | {
+        kind: 'registration'
+        optionsJSON: unknown
+        displayName: string
+        seq: number
+        commitSeq: () => Promise<void>
+      }
     | { kind: 'authentication'; optionsJSON: unknown }
     | null
   >(null)
 
   const pendingPasskeyRef = useRef<PendingPasskey | null>(null)
   const pendingRecoveryRef = useRef<PendingRecovery | null>(null)
+
+  // The passkey prefetch needs the name the user typed on the previous step, but
+  // must not re-run (and re-peek the passkey counter) on every keystroke.
+  const accountNameRef = useRef(accountName)
+  accountNameRef.current = accountName
 
   const seedWords = useSeedPhraseWords()
 
@@ -106,7 +116,12 @@ export function AddAccountFlow({
           if (cancelled) return
           if (!accountsRes.ok) throw new Error(friendlyError(accountsRes.error))
 
-          const displayName = nextPasskeyAccountDisplayName(accountsRes.data?.accounts ?? [])
+          const reserved = await reservePasskeyName({
+            accountLabel: accountNameRef.current,
+            fallbackAccounts: accountsRes.data?.accounts ?? [],
+          })
+          if (cancelled) return
+          const displayName = reserved.displayName
           const begin = await sendToBackground<
             { displayName?: string },
             BackendWebauthnBeginResponse
@@ -119,7 +134,13 @@ export function AddAccountFlow({
 
           const optionsJSON = prepareRegistrationOptionsForCreate(begin.data?.options, displayName)
           assertBeginOptionsRpIdMatchesCanonicalDomain(optionsJSON)
-          passkeyPrefetchRef.current = { kind: 'registration', optionsJSON, displayName }
+          passkeyPrefetchRef.current = {
+            kind: 'registration',
+            optionsJSON,
+            displayName,
+            seq: reserved.seq,
+            commitSeq: reserved.commit,
+          }
         } else {
           const begin = await sendToBackground<undefined, BackendWebauthnBeginResponse>({
             type: 'PASSKEY_AUTH_BEGIN',
@@ -145,6 +166,39 @@ export function AddAccountFlow({
       cancelled = true
     }
   }, [step, passkeyPrefetchNonce])
+
+  /**
+   * Label the new account, make it active, and land on success. Shared by the
+   * create-passkey path (which finalizes right after the ceremony, since the
+   * name was collected before it) and the existing-passkey / recovery-phrase
+   * paths (which finalize from the create screen and keep its minimum spinner).
+   */
+  const finalizeAccount = useCallback(
+    async (account: StoredAccount | undefined, opts?: { minDurationFrom?: number }) => {
+      const label = accountNameRef.current.trim()
+      if (account?.id) {
+        await sendToBackground<{ accountId: string; label?: string }, undefined>({
+          type: 'RENAME_ACCOUNT',
+          payload: { accountId: account.id, label },
+        })
+        await sendToBackground<SetActiveAccountRequest, undefined>({
+          type: 'SET_ACTIVE_ACCOUNT',
+          payload: { accountId: account.id },
+        })
+      }
+
+      if (opts?.minDurationFrom !== undefined) {
+        const elapsed = Date.now() - opts.minDurationFrom
+        if (elapsed < CREATE_MIN_MS) {
+          await new Promise((resolve) => setTimeout(resolve, CREATE_MIN_MS - elapsed))
+        }
+      }
+
+      onAccountsChanged()
+      setStep('success')
+    },
+    [onAccountsChanged]
+  )
 
   const runPasskeyAuthentication = useCallback(
     async (optionsJSON: unknown) => {
@@ -211,11 +265,11 @@ export function AddAccountFlow({
         assertRegistrationCeremonyForFinish(registration)
 
         const finish = await sendToBackground<
-          { response: unknown },
+          BackendWebauthnRegistrationFinishRequest,
           BackendWebauthnRegistrationFinishResponse & { account: StoredAccount }
         >({
           type: 'PASSKEY_REG_FINISH',
-          payload: { response: registration },
+          payload: { response: registration, displayName: pre.displayName, seq: pre.seq },
         })
         if (!finish.ok) {
           const errMsg = friendlyError(finish.error)
@@ -227,9 +281,13 @@ export function AddAccountFlow({
           )
         }
 
-        pendingPasskeyRef.current = { kind: 'registration', account: finish.data!.account }
+        // The authenticator now holds a passkey with this number; retire it only
+        // now, so an abandoned or failed ceremony does not burn one.
+        await pre.commitSeq()
+
+        pendingPasskeyRef.current = null
         pendingRecoveryRef.current = null
-        setStep('createAccount')
+        await finalizeAccount(finish.data!.account)
       } catch (e) {
         setPasskeyPrefetchNonce((n) => n + 1)
         setPasskeyActionError(e instanceof Error ? e.message : String(e))
@@ -237,7 +295,7 @@ export function AddAccountFlow({
         setPasskeyBusy(false)
       }
     })()
-  }, [passkeyPrefetchError, passkeyPrefetchReady, runPasskeyRegistration, surface])
+  }, [finalizeAccount, passkeyPrefetchError, passkeyPrefetchReady, runPasskeyRegistration, surface])
 
   const handleImportRecoveryPhrase = useCallback(() => {
     if (!seedWords.isValid) return
@@ -249,6 +307,15 @@ export function AddAccountFlow({
   const finishCreateAccount = useCallback(async () => {
     const label = accountName.trim()
     if (!label) return
+
+    // Creating a new passkey: the name is collected *before* the ceremony so it
+    // can become the passkey's label in the credential manager, so this screen
+    // only advances. handleCreatePasskey finalizes once the passkey exists.
+    if (selectedMethod === 'createPasskey') {
+      setCreateError(null)
+      setStep('createPasskey')
+      return
+    }
 
     setCreateError(null)
     setCreating(true)
@@ -277,8 +344,6 @@ export function AddAccountFlow({
           )
         }
         account = res.data!.account
-      } else if (pending?.kind === 'registration') {
-        account = pending.account
       } else if (pendingRecoveryRef.current) {
         const req: ImportMnemonicAccountRequest = {
           mnemonic: pendingRecoveryRef.current.mnemonic,
@@ -297,30 +362,13 @@ export function AddAccountFlow({
         throw new Error('No signer data available. Go back and try again.')
       }
 
-      if (account?.id) {
-        await sendToBackground<{ accountId: string; label?: string }, undefined>({
-          type: 'RENAME_ACCOUNT',
-          payload: { accountId: account.id, label },
-        })
-        await sendToBackground<SetActiveAccountRequest, undefined>({
-          type: 'SET_ACTIVE_ACCOUNT',
-          payload: { accountId: account.id },
-        })
-      }
-
-      const elapsed = Date.now() - started
-      if (elapsed < CREATE_MIN_MS) {
-        await new Promise((resolve) => setTimeout(resolve, CREATE_MIN_MS - elapsed))
-      }
-
-      onAccountsChanged()
-      setStep('success')
+      await finalizeAccount(account, { minDurationFrom: started })
     } catch (e) {
       setCreateError(e instanceof Error ? e.message : String(e))
     } finally {
       setCreating(false)
     }
-  }, [accountName, onAccountsChanged])
+  }, [accountName, finalizeAccount, selectedMethod])
 
   const handleCreateBack = useCallback(() => {
     if (creating) return
@@ -330,7 +378,8 @@ export function AddAccountFlow({
       return
     }
     if (selectedMethod === 'createPasskey') {
-      setStep('createPasskey')
+      // Naming now comes before the ceremony, so back goes to method choice.
+      setStep('chooseMethod')
       return
     }
     setStep('passkey')
@@ -342,7 +391,8 @@ export function AddAccountFlow({
       return
     }
     if (selectedMethod === 'createPasskey') {
-      setStep('createPasskey')
+      // Name the account first so the passkey can carry that label.
+      setStep('createAccount')
       return
     }
     if (selectedMethod === 'recoveryPhrase') {
@@ -358,6 +408,13 @@ export function AddAccountFlow({
     setStep('chooseMethod')
     setSelectedMethod(null)
   }, [])
+
+  /** Back from the ceremony returns to the name step, keeping the chosen method. */
+  const handleBackFromCreatePasskey = useCallback(() => {
+    if (passkeyBusy) return
+    setPasskeyActionError(null)
+    setStep('createAccount')
+  }, [passkeyBusy])
 
   if (step === 'success') {
     return (
@@ -411,7 +468,7 @@ export function AddAccountFlow({
           actionError={passkeyActionError}
           busy={passkeyBusy}
           onCreatePasskey={handleCreatePasskey}
-          onBack={handleBackFromPasskeyOrRecovery}
+          onBack={handleBackFromCreatePasskey}
         />
       ) : null}
 

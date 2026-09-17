@@ -1,4 +1,3 @@
-import type { StoredAccount } from '@latch/types'
 import { p256 } from '@noble/curves/nist.js'
 import { decodeMultiple } from 'cbor-x'
 import { xdr } from '@stellar/stellar-sdk'
@@ -7,22 +6,6 @@ import { latchWebauthnRpId } from '../lib/latchEnv'
 import { base64UrlToBytes, bytesToBase64Url, bytesToHex, concatBytes, hexToBytes } from './utils'
 
 export { latchWebauthnRpId } from '../lib/latchEnv'
-
-/** WebAuthn `user.displayName` for the next passkey registration (1-based, counts existing local passkey accounts). */
-export function nextPasskeyAccountDisplayName(accounts: StoredAccount[]): string {
-  const passkeyCount = accounts.reduce((n, a) => n + (a.mode === 'passkey' ? 1 : 0), 0)
-  return `Latch account ${passkeyCount + 1}`
-}
-
-/** Unique WebAuthn display name for a new passkey in a specific flow (e.g. multisig). */
-export function nextPasskeyRegistrationDisplayName(
-  accounts: StoredAccount[],
-  context?: string
-): string {
-  const base = nextPasskeyAccountDisplayName(accounts)
-  const ctx = context?.trim()
-  return ctx ? `${base} · ${ctx}` : base
-}
 
 export type PasskeyRegistrationResult = {
   credentialId: string
@@ -651,6 +634,17 @@ export function warnIfBeginOptionsIgnoreDisplayName(
         `Requested "${requested}" but options carry user.displayName "${serverDisplayName}". ` +
         `New passkeys may all show the same label in Google Password Manager until the API maps ` +
         `displayName -> user.displayName / user.name.`
+    )
+  }
+  // The passkey *management* screen (iOS Settings → Passwords, Chrome's passkey
+  // manager) renders user.name, not displayName, so a constant or slug here is
+  // just as bad even when the picker looks right.
+  const serverName = typeof user.name === 'string' ? user.name : undefined
+  if (serverName !== undefined && serverName !== requested) {
+    console.warn(
+      `[latch/passkey] The Latch API set user.name to "${serverName}" instead of the requested ` +
+        `"${requested}". Chrome's and iOS's passkey management screens show user.name, so this ` +
+        `passkey will be hard to tell apart from the others there.`
     )
   }
 }

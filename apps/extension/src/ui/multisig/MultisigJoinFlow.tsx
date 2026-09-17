@@ -17,7 +17,6 @@ import {
   listReusablePasskeyAccounts,
 } from '../lib/multisigPasskey'
 import { storedAccountLabel } from '../lib/storedAccountLabel'
-import { nextPasskeyRegistrationDisplayName } from '../webauthn/passkey'
 import { JoinMultisigScreen } from '../screens/multisig/JoinMultisigScreen'
 import { OnboardingPrimaryButton } from '../onboarding/components/OnboardingCardButtons'
 import { toMultisigPasskeyOptions } from './MultisigPasskeyPicker'
@@ -216,7 +215,7 @@ export function MultisigJoinFlow({
           enrollNewPasskeyForJoin({
             token,
             label: 'Owner',
-            displayName: nextPasskeyRegistrationDisplayName(accounts, 'multisig join'),
+            accounts,
             surface,
           })
         )

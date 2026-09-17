@@ -26,7 +26,6 @@ import {
   enrollNewPasskeyForDraft,
   listReusablePasskeyAccounts,
 } from '../lib/multisigPasskey'
-import { nextPasskeyRegistrationDisplayName } from '../webauthn/passkey'
 import { findDraftMemberForStoredAccount } from '../lib/multisigJoinHelpers'
 import { multisigDraftMembersEqual } from '../lib/multisigMembers'
 import { storedAccountLabel } from '../lib/storedAccountLabel'
@@ -152,10 +151,8 @@ export function MultisigCreateWizard({
       const { draft, credentialId } = await enrollNewPasskeyForDraft({
         draftId: wizard.draftId,
         label: wizard.walletName,
-        displayName: nextPasskeyRegistrationDisplayName(
-          accounts,
-          `${wizard.walletName || 'Latch'} multisig`
-        ),
+        accountLabel: wizard.walletName,
+        accounts,
         surface,
       })
       applyDraftPasskeyEnrollment(draft, credentialId)

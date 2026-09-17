@@ -8,6 +8,7 @@ import type {
   GetAccountsResponse,
   GetBackendAccountsRequest,
   ImportMnemonicAccountRequest,
+  PasskeyConfirmSeqRequest,
   SetActiveAccountRequest,
   SetSetupStateRequest,
   UnlockMnemonicVaultRequest,
@@ -41,10 +42,12 @@ import {
 } from '../mnemonicVault'
 import { deriveStellarKeypairFromMnemonic } from '../stellarMnemonic'
 import {
+  confirmPasskeySeq,
   createAccount,
   clearSession,
   deleteAccount,
   getAccounts,
+  peekNextPasskeySeq,
   removeRemovedAccountAddress,
   renameAccount,
   setActiveAccount,
@@ -165,6 +168,19 @@ export async function tryHandleAccountsMessage(
           account,
         })
       )
+      return true
+    }
+
+    case 'PASSKEY_NEXT_SEQ': {
+      const seq = await peekNextPasskeySeq()
+      sendResponse(ok({ seq }))
+      return true
+    }
+
+    case 'PASSKEY_CONFIRM_SEQ': {
+      const req = message.payload as PasskeyConfirmSeqRequest
+      await confirmPasskeySeq(req.seq)
+      sendResponse(ok())
       return true
     }
 

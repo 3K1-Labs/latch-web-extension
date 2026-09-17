@@ -1,5 +1,6 @@
 import type {
   BackendWebauthnBeginResponse,
+  BackendWebauthnRegistrationFinishRequest,
   BackendWebauthnRegistrationFinishResponse,
   MultisigDraft,
   MultisigDraftMemberRequest,
@@ -11,9 +12,9 @@ import {
   enrichWebauthnRpIdHashErrorMessage,
   formatWebauthnBrowserError,
   narrowAuthenticationOptionsToCredential,
-  nextPasskeyRegistrationDisplayName,
   prepareRegistrationOptionsForCreate,
 } from '../webauthn/passkey'
+import { reservePasskeyName } from '../webauthn/passkeyName'
 import { runWebauthnCredential } from '../webauthn/runWebauthnCredential'
 
 import { friendlyError, sendToBackground } from './backgroundClient'
@@ -49,7 +50,12 @@ export async function enrollNewPasskeyForCosignWizard(args: {
   label: string
   surface: 'popup' | 'sidepanel'
 }): Promise<StoredAccount> {
-  const displayName = nextPasskeyRegistrationDisplayName(args.accounts, `${args.label} multisig`)
+  const reserved = await reservePasskeyName({
+    accountLabel: args.label,
+    context: 'multisig',
+    fallbackAccounts: args.accounts,
+  })
+  const displayName = reserved.displayName
   const begin = await sendToBackground<{ displayName?: string }, BackendWebauthnBeginResponse>({
     type: 'PASSKEY_REG_BEGIN',
     payload: { displayName },
@@ -65,11 +71,11 @@ export async function enrollNewPasskeyForCosignWizard(args: {
   }
   assertRegistrationCeremonyForFinish(registration)
   const finish = await sendToBackground<
-    { response: unknown },
+    BackendWebauthnRegistrationFinishRequest,
     BackendWebauthnRegistrationFinishResponse & { account: StoredAccount }
   >({
     type: 'PASSKEY_REG_FINISH',
-    payload: { response: registration },
+    payload: { response: registration, displayName, seq: reserved.seq },
   })
   if (!finish.ok || !finish.data?.account) {
     const errMsg = friendlyError(finish.error)
@@ -80,6 +86,7 @@ export async function enrollNewPasskeyForCosignWizard(args: {
       })
     )
   }
+  await reserved.commit()
   return finish.data.account
 }
 
@@ -157,10 +164,17 @@ export async function enrollExistingPasskeyForDraft(args: {
 export async function enrollNewPasskeyForDraft(args: {
   draftId: string
   label: string
-  displayName: string
+  /** Wallet name folded into the passkey label; defaults to the member label. */
+  accountLabel?: string
+  accounts?: StoredAccount[]
   surface: 'popup' | 'sidepanel'
 }): Promise<{ draft: MultisigDraft; credentialId: string }> {
-  const begin = await apiDraftPasskeyRegBegin(args.draftId, args.displayName)
+  const reserved = await reservePasskeyName({
+    accountLabel: args.accountLabel ?? args.label,
+    context: 'multisig',
+    fallbackAccounts: args.accounts,
+  })
+  const begin = await apiDraftPasskeyRegBegin(args.draftId, reserved.displayName)
   assertBeginOptionsRpIdMatchesCanonicalDomain(begin.options)
   let assertion: unknown
   try {
@@ -169,6 +183,7 @@ export async function enrollNewPasskeyForDraft(args: {
     throw new Error(formatWebauthnBrowserError(e))
   }
   const cred = await apiDraftPasskeyRegFinish(args.draftId, assertion)
+  await reserved.commit()
   const draft = await apiAddDraftMember(args.draftId, {
     label: args.label,
     memberType: 'passkey',
@@ -202,10 +217,17 @@ export async function enrollExistingPasskeyForJoin(args: {
 export async function enrollNewPasskeyForJoin(args: {
   token: string
   label: string
-  displayName: string
+  /** Wallet name folded into the passkey label, when the invite carries one. */
+  accountLabel?: string
+  accounts?: StoredAccount[]
   surface: 'popup' | 'sidepanel'
 }): Promise<{ draft: MultisigDraft; credentialId: string }> {
-  const begin = await apiJoinPasskeyRegBegin(args.token, args.displayName)
+  const reserved = await reservePasskeyName({
+    accountLabel: args.accountLabel,
+    context: 'multisig join',
+    fallbackAccounts: args.accounts,
+  })
+  const begin = await apiJoinPasskeyRegBegin(args.token, reserved.displayName)
   assertBeginOptionsRpIdMatchesCanonicalDomain(begin.options)
   let assertion: unknown
   try {
@@ -214,6 +236,7 @@ export async function enrollNewPasskeyForJoin(args: {
     throw new Error(formatWebauthnBrowserError(e))
   }
   const cred = await apiJoinPasskeyRegFinish(args.token, assertion)
+  await reserved.commit()
   const draft = await apiJoinMember(args.token, {
     label: args.label,
     memberType: 'passkey',
