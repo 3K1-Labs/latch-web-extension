@@ -71,7 +71,7 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
 
 type LatchModuleSDK = Pick<
   LatchSDK,
-  'isConnected' | 'getPublicKey' | 'getNetwork' | 'openSignRequest' | 'on' | 'off'
+  'isConnected' | 'getPublicKey' | 'getNetwork' | 'openSignRequest' | 'disconnect' | 'on' | 'off'
 > & {
   signTransaction(request: SignTransactionRequest): Promise<SignTransactionResponse>
 }
@@ -86,6 +86,9 @@ function defaultSDK(): LatchModuleSDK {
     signTransaction: (request) => window.latch!.signTransaction(request),
     openSignRequest: (params) => window.latch!.openSignRequest(params),
     getNetwork: () => window.latch!.getNetwork(),
+    disconnect: async () => {
+      await window.latch!.disconnect?.()
+    },
     on: (event, handler) => window.latch!.on?.(event, handler),
     off: (event, handler) => window.latch!.off?.(event, handler),
   }
@@ -173,7 +176,8 @@ export class LatchModule implements ModuleInterface {
   }
 
   async disconnect(): Promise<void> {
-    // Latch has no disconnect API yet. Kit teardown must remain harmless.
+    // Revokes the origin allowlist so the kit's "Disconnect" drops wallet access.
+    await this.sdk.disconnect()
   }
 }
 

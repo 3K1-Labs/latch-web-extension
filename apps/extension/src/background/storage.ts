@@ -25,6 +25,11 @@ const STORAGE_KEYS = {
   activeAccountId: 'latch.activeAccountId',
   activeAccountIdByNetwork: 'latch.activeAccountId.byNetwork',
   dappPermissions: 'latch.dappPermissions',
+  /**
+   * Origins that called `disconnect()` and must not auto-open Grant Access
+   * until a fresh page load (or an explicit permission grant) clears them.
+   */
+  dappDisconnectedOrigins: 'latch.dappDisconnectedOrigins',
   pendingDappRequests: 'latch.pendingDappRequests',
   multisigPendingInvites: 'latch.multisigPendingInvites',
   multisigDraftMeta: 'latch.multisigDraftMeta',
@@ -702,7 +707,51 @@ export async function setDappPermissions(
   const store = (res[STORAGE_KEYS.dappPermissions] as DappPermissionsStore | undefined) ?? {}
   const next: DappPermissionsStore = { ...store, [origin]: allowed }
   await chrome.storage.local.set({ [STORAGE_KEYS.dappPermissions]: next })
+  // A grant means the site is connected again — drop the sticky disconnect flag.
+  await clearDappOriginDisconnected(origin)
   return allowed
+}
+
+async function readDisconnectedOrigins(): Promise<string[]> {
+  const res = await chrome.storage.local.get([STORAGE_KEYS.dappDisconnectedOrigins])
+  const raw = res[STORAGE_KEYS.dappDisconnectedOrigins]
+  return Array.isArray(raw) ? (raw as string[]) : []
+}
+
+/** After `disconnect()`, Grant Access stays closed until a fresh page session. */
+export async function markDappOriginDisconnected(origin: string): Promise<void> {
+  const current = await readDisconnectedOrigins()
+  if (current.includes(origin)) return
+  await chrome.storage.local.set({
+    [STORAGE_KEYS.dappDisconnectedOrigins]: [...current, origin],
+  })
+}
+
+export async function clearDappOriginDisconnected(origin: string): Promise<void> {
+  const current = await readDisconnectedOrigins()
+  if (!current.includes(origin)) return
+  const next = current.filter((o) => o !== origin)
+  if (next.length === 0) {
+    await chrome.storage.local.remove([STORAGE_KEYS.dappDisconnectedOrigins])
+    return
+  }
+  await chrome.storage.local.set({ [STORAGE_KEYS.dappDisconnectedOrigins]: next })
+}
+
+export async function isDappOriginDisconnected(origin: string): Promise<boolean> {
+  const current = await readDisconnectedOrigins()
+  return current.includes(origin)
+}
+
+/** Revoke one origin's allowlist entry. Other origins are untouched. */
+export async function clearDappPermissions(origin: string): Promise<void> {
+  const res = await chrome.storage.local.get([STORAGE_KEYS.dappPermissions])
+  const store = (res[STORAGE_KEYS.dappPermissions] as DappPermissionsStore | undefined) ?? {}
+  if (!(origin in store)) return
+  const next: DappPermissionsStore = { ...store }
+  // Drop the key entirely so a future connected-sites list has no empty rows.
+  delete next[origin]
+  await chrome.storage.local.set({ [STORAGE_KEYS.dappPermissions]: next })
 }
 
 export async function listPendingDappRequests(): Promise<PendingDappRequest[]> {
@@ -738,6 +787,7 @@ export async function clearSession() {
     STORAGE_KEYS.setupStateByNetwork,
     STORAGE_KEYS.legacyAccountPublicKey,
     STORAGE_KEYS.dappPermissions,
+    STORAGE_KEYS.dappDisconnectedOrigins,
     STORAGE_KEYS.pendingDappRequests,
     STORAGE_KEYS.removedAccounts,
     STORAGE_KEYS.accountSigners,

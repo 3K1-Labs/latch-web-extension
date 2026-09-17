@@ -1,6 +1,8 @@
 import type {
   BackgroundMessage,
+  DappDisconnectRequest,
   DappOpenSignRequestPayload,
+  DappPageSessionStartRequest,
   ExternalSignResult,
   GetDappPermissionsRequest,
   ListPendingDappRequestsResponse,
@@ -15,9 +17,12 @@ import { runExternalSignFlow } from '../externalSign/orchestrator'
 import type { OkFn } from '../messageResponse'
 import {
   addPendingDappRequest,
+  clearDappOriginDisconnected,
+  clearDappPermissions,
   getAccounts,
   getDappPermissions,
   listPendingDappRequests,
+  markDappOriginDisconnected,
   removePendingDappRequest,
   setDappPermissions,
 } from '../storage'
@@ -26,7 +31,11 @@ import {
   mergePermissions,
   openApprovalPopup,
   pendingDappResolvers,
+  rejectPendingDappRequestsForOrigin,
   requireDappApproval,
+  assertDappConnectPromptAllowed,
+  closeApprovalWindowForOrigin,
+  suppressGrantAccessPrompt,
   waitForExternalSignDecision,
 } from './approvalSession'
 
@@ -70,7 +79,13 @@ export async function tryHandleDappMessage(
       const req = message.payload as ResolvePendingDappRequest
       const resolver = pendingDappResolvers.get(req.requestId)
       pendingDappResolvers.delete(req.requestId)
+      // Look up origin before removing so Cancel / dismiss can cooldown + close durable UI.
+      const stored = await listPendingDappRequests()
+      const pendingRow = stored.find((r) => r.id === req.requestId)
       await removePendingDappRequest(req.requestId)
+      if (!req.approved && pendingRow?.kind === 'getPublicKey') {
+        suppressGrantAccessPrompt(pendingRow.origin)
+      }
       resolver?.({
         approved: req.approved,
         errorMessage: req.errorMessage,
@@ -80,6 +95,9 @@ export async function tryHandleDappMessage(
         signedAuthEntry: req.signedAuthEntry,
         signedTxXdr: req.signedTxXdr,
       })
+      if (pendingRow?.origin) {
+        await closeApprovalWindowForOrigin(pendingRow.origin)
+      }
       sendResponse(ok())
       return true
     }
@@ -123,7 +141,7 @@ export async function tryHandleDappMessage(
           await addPendingDappRequest(pending)
         },
         openPopup: async () => {
-          await openApprovalPopup()
+          await openApprovalPopup(req.request.origin)
         },
       })
       sendResponse(ok(result as ExternalSignResult))
@@ -134,9 +152,16 @@ export async function tryHandleDappMessage(
       const req = message.payload as GetDappPermissionsRequest
       const allowed = await getDappPermissions(req.origin)
       if (!allowed.includes('getPublicKey')) {
+        // After disconnect / dismissed Grant Access, fail closed instead of
+        // opening another prompt in a retry loop.
+        await assertDappConnectPromptAllowed(req.origin)
         const approval = await requireDappApproval({ origin: req.origin, kind: 'getPublicKey' })
-        if (!approval.approved)
-          throw new BackendError('User rejected', { status: 403, code: 'user_rejected' })
+        if (!approval.approved) {
+          throw new BackendError(approval.errorMessage ?? 'User rejected', {
+            status: 403,
+            code: approval.errorCode ?? 'user_rejected',
+          })
+        }
         await setDappPermissions(req.origin, mergePermissions(allowed, 'getPublicKey'))
       }
       const { accounts, activeAccountId } = await getAccounts()
@@ -148,13 +173,35 @@ export async function tryHandleDappMessage(
       return true
     }
 
+    case 'DAPP_DISCONNECT': {
+      const req = message.payload as DappDisconnectRequest
+      // Mark sticky first so an in-flight getPublicKey retry cannot race open a prompt.
+      await markDappOriginDisconnected(req.origin)
+      await clearDappPermissions(req.origin)
+      await rejectPendingDappRequestsForOrigin(req.origin)
+      sendResponse(ok())
+      return true
+    }
+
+    case 'DAPP_PAGE_SESSION_START': {
+      const req = message.payload as DappPageSessionStartRequest
+      await clearDappOriginDisconnected(req.origin)
+      sendResponse(ok())
+      return true
+    }
+
     case 'DAPP_OPEN_SIGN_REQUEST': {
       const req = message.payload as DappOpenSignRequestPayload
       const allowed = await getDappPermissions(req.origin)
       if (!allowed.includes('getPublicKey')) {
+        await assertDappConnectPromptAllowed(req.origin)
         const approval = await requireDappApproval({ origin: req.origin, kind: 'getPublicKey' })
-        if (!approval.approved)
-          throw new BackendError('User rejected', { status: 403, code: 'user_rejected' })
+        if (!approval.approved) {
+          throw new BackendError(approval.errorMessage ?? 'User rejected', {
+            status: 403,
+            code: approval.errorCode ?? 'user_rejected',
+          })
+        }
         await setDappPermissions(req.origin, mergePermissions(allowed, 'getPublicKey'))
       }
       const query = buildSignRequestSearchParams(req.request)
@@ -198,7 +245,7 @@ export async function tryHandleDappMessage(
           await addPendingDappRequest(pending)
         },
         openPopup: async () => {
-          await openApprovalPopup()
+          await openApprovalPopup(origin)
         },
       })
 
