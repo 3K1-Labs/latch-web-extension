@@ -22,6 +22,8 @@ export type Route =
   | 'multisigProposals'
   | 'multisigProposalDetail'
   | 'multisigWallets'
+  | 'accountSigners'
+  | 'addBackupPasskey'
   | 'importSeed'
   | 'importSeedEncrypt'
   | 'unlockMnemonic'
@@ -51,6 +53,8 @@ export function routeKeepsUiMountedForWebauthn(route: Route): boolean {
     route === 'addMultisigOwners' ||
     route === 'joinMultisig' ||
     route === 'multisigProposalDetail' ||
+    route === 'accountSigners' ||
+    route === 'addBackupPasskey' ||
     route === 'fund'
   )
 }
@@ -98,6 +102,9 @@ export const ONBOARDING_ONLY_ROUTES: Route[] = [
 export function isOnboardingOnlyRoute(route: Route): boolean {
   return ONBOARDING_ONLY_ROUTES.includes(route)
 }
+
+/** Backup passkey signer management for the active passkey wallet. */
+export const SIGNER_ROUTES: Route[] = ['accountSigners', 'addBackupPasskey']
 
 export const MULTISIG_ROUTES: Route[] = [
   'createMultisig',

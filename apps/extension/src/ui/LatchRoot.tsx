@@ -44,6 +44,7 @@ import { closeWalletSurface, openSidePanel, setDefaultSurface } from './lib/uiSu
 import {
   MULTISIG_ROUTES,
   ROUTES_GATED_BY_MNEMONIC_UNLOCK,
+  SIGNER_ROUTES,
   resolveMainRoute,
   routeKeepsUiMountedForWebauthn,
   type Page,
@@ -54,6 +55,7 @@ import { useTheme } from './hooks/useTheme'
 import { useUiSurfacePreference } from './hooks/useUiSurfacePreference'
 import { useAccountsHydration } from './hooks/useAccountsHydration'
 import { usePortfolioAndHistory } from './hooks/usePortfolioAndHistory'
+import { AccountSignersRouteViews } from './signers/AccountSignersRouteViews'
 import { SwapRouteViews, type SwapOverlayFlags } from './swap/SwapRouteViews'
 import { SendRouteViews } from './send/SendRouteViews'
 import { AccountRouteViews } from './accounts/AccountRouteViews'
@@ -81,6 +83,7 @@ export function LatchRoot({ surface }: { surface: Surface }) {
       else if (pending.kind === 'send') setRoute('send')
       else if (pending.kind === 'dapp') setRoute('dappApproval')
       else if (pending.kind === 'multisigApprove') setRoute('multisigProposalDetail')
+      else if (pending.kind === 'accountSigners') setRoute('accountSigners')
     })()
   }, [])
 
@@ -312,6 +315,7 @@ export function LatchRoot({ surface }: { surface: Surface }) {
 
   const multisigRoutes = MULTISIG_ROUTES
   const isMultisigRoute = multisigRoutes.includes(route as Route)
+  const isSignerRoute = SIGNER_ROUTES.includes(route as Route)
 
   const mainTabRoutes = ['home', 'swap', 'history', 'explore'] as const
   const showMainBottomNav =
@@ -453,6 +457,24 @@ export function LatchRoot({ surface }: { surface: Surface }) {
               </div>
             ) : null}
 
+            {!loading && !showOnboardingTabPrompt && isSignerRoute ? (
+              <div
+                className={[
+                  routeContentMarginClass,
+                  'flex min-h-0 flex-1 flex-col animate-screenIn',
+                  flowHeightClass,
+                ].join(' ')}
+              >
+                <AccountSignersRouteViews
+                  route={route}
+                  surface={surface}
+                  activeAccount={activeAccount}
+                  accounts={accounts}
+                  onSetRoute={(r) => setRoute(r as Route)}
+                />
+              </div>
+            ) : null}
+
             <AccountRouteViews
               route={route}
               surface={surface}
@@ -572,6 +594,14 @@ export function LatchRoot({ surface }: { surface: Surface }) {
                           setPage('main')
                           setRoute('multisigWallets')
                         }}
+                        onOpenAccountSigners={
+                          activeAccount?.mode === 'passkey'
+                            ? () => {
+                                setPage('main')
+                                setRoute('accountSigners')
+                              }
+                            : undefined
+                        }
                         onOpenMultisigProposals={
                           activeAccount?.mode === 'multisig'
                             ? () => {

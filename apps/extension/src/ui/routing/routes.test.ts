@@ -7,6 +7,7 @@ import {
   needsMnemonicUnlockFromAccounts,
   resolveMainRoute,
   routeKeepsUiMountedForWebauthn,
+  SIGNER_ROUTES,
 } from './routes'
 
 function mnemonicAccount(id: string): StoredAccount {
@@ -36,6 +37,8 @@ describe('routeKeepsUiMountedForWebauthn', () => {
     expect(routeKeepsUiMountedForWebauthn('addMultisigOwners')).toBe(true)
     expect(routeKeepsUiMountedForWebauthn('joinMultisig')).toBe(true)
     expect(routeKeepsUiMountedForWebauthn('multisigProposalDetail')).toBe(true)
+    expect(routeKeepsUiMountedForWebauthn('accountSigners')).toBe(true)
+    expect(routeKeepsUiMountedForWebauthn('addBackupPasskey')).toBe(true)
     expect(routeKeepsUiMountedForWebauthn('fund')).toBe(true)
   })
 
@@ -43,6 +46,21 @@ describe('routeKeepsUiMountedForWebauthn', () => {
     expect(routeKeepsUiMountedForWebauthn('home')).toBe(false)
     expect(routeKeepsUiMountedForWebauthn('swap')).toBe(false)
     expect(routeKeepsUiMountedForWebauthn('history')).toBe(false)
+  })
+})
+
+describe('SIGNER_ROUTES', () => {
+  it('covers the signer screens and keeps them all WebAuthn-safe', () => {
+    expect(SIGNER_ROUTES).toEqual(['accountSigners', 'addBackupPasskey'])
+    for (const route of SIGNER_ROUTES) {
+      expect(routeKeepsUiMountedForWebauthn(route)).toBe(true)
+    }
+  })
+
+  it('does not treat signer routes as onboarding-only', () => {
+    for (const route of SIGNER_ROUTES) {
+      expect(isOnboardingOnlyRoute(route)).toBe(false)
+    }
   })
 })
 

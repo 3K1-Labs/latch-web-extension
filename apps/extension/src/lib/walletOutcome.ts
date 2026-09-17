@@ -6,7 +6,13 @@
 export const PENDING_WALLET_OUTCOME_KEY = 'latch.pendingWalletOutcome' as const
 export const PENDING_WALLET_OUTCOME_TTL_MS = 5 * 60 * 1000
 
-export type WalletOutcomeKind = 'swap' | 'send' | 'dapp' | 'multisigApprove'
+export type WalletOutcomeKind =
+  | 'swap'
+  | 'send'
+  | 'dapp'
+  | 'multisigApprove'
+  /** Adding or removing a backup passkey signer. */
+  | 'accountSigners'
 
 export type PendingWalletOutcome = {
   version: 1
