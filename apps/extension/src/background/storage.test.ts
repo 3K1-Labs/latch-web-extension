@@ -1,13 +1,19 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import {
+  clearSession,
+  confirmPasskeySeq,
   createAccount,
   deleteAccount,
+  deleteAccountSignerRecord,
   getAccounts,
+  getAccountSignerRecords,
   getAccountsForNetwork,
   getRemovedAccountAddresses,
   getSetupStateForNetwork,
+  peekNextPasskeySeq,
   removeRemovedAccountAddress,
   resetAccountsPartitionMigrationForTests,
+  upsertAccountSignerRecord,
 } from './storage'
 import { setActiveNetwork, setCachedActiveNetwork } from './network/config'
 
@@ -30,6 +36,30 @@ describe('background/storage', () => {
     expect(activeAccountId).toBe(accounts[0]!.id)
     expect(accounts[0]!.mode).toBe('passkey')
     expect(accounts[0]!.smartAccountAddress).toBe('GSMARTACCOUNT')
+  })
+
+  it('repoints the existing wallet when a backup passkey logs in, instead of adding a row', async () => {
+    await createAccount({
+      mode: 'passkey',
+      smartAccountAddress: 'CSHARED',
+      passkeyCredentialId: 'cred-a',
+      passkeyKeyDataHex: 'aa',
+    })
+
+    // Restoring with the backup passkey: same smart account, different
+    // credential. Two rows here would show the user a duplicate wallet.
+    await createAccount({
+      mode: 'passkey',
+      smartAccountAddress: 'CSHARED',
+      passkeyCredentialId: 'cred-b',
+      passkeyKeyDataHex: 'bb',
+    })
+
+    const { accounts } = await getAccounts()
+    expect(accounts).toHaveLength(1)
+    expect(accounts[0]!.smartAccountAddress).toBe('CSHARED')
+    expect(accounts[0]!.passkeyCredentialId).toBe('cred-b')
+    expect(accounts[0]!.passkeyKeyDataHex).toBe('bb')
   })
 
   it('migrates flat latch.accounts into testnet bucket and isolates mainnet', async () => {
@@ -194,6 +224,139 @@ describe('background/storage', () => {
 
       await removeRemovedAccountAddress('CMULTI')
       expect(await getRemovedAccountAddresses()).toHaveLength(0)
+    })
+  })
+
+  describe('account signer records', () => {
+    const backupSigner = {
+      credentialId: 'cred-b',
+      keyDataHex: 'bb',
+      label: 'Backup (Latch 2) · backup',
+      role: 'backup' as const,
+      status: 'pending' as const,
+      addedAt: 10,
+    }
+
+    it('round-trips a record for one account', async () => {
+      await upsertAccountSignerRecord('CWALLET', backupSigner)
+      expect(await getAccountSignerRecords('CWALLET')).toEqual([backupSigner])
+      expect(await getAccountSignerRecords('COTHER')).toEqual([])
+    })
+
+    it('merges by credential id instead of appending a duplicate', async () => {
+      await upsertAccountSignerRecord('CWALLET', backupSigner)
+      await upsertAccountSignerRecord('CWALLET', {
+        ...backupSigner,
+        status: 'onchain',
+        signerId: 7,
+      })
+
+      const records = await getAccountSignerRecords('CWALLET')
+      expect(records).toHaveLength(1)
+      expect(records[0]!.status).toBe('onchain')
+      expect(records[0]!.signerId).toBe(7)
+      expect(records[0]!.label).toBe(backupSigner.label)
+    })
+
+    it('clears pendingConfirm when the confirm succeeds', async () => {
+      await upsertAccountSignerRecord('CWALLET', {
+        ...backupSigner,
+        pendingConfirm: { txHash: 'hash-1', contextRuleId: 3 },
+      })
+      await upsertAccountSignerRecord('CWALLET', {
+        ...backupSigner,
+        status: 'onchain',
+        pendingConfirm: undefined,
+      })
+
+      expect((await getAccountSignerRecords('CWALLET'))[0]!.pendingConfirm).toBeUndefined()
+    })
+
+    it('partitions records per network', async () => {
+      await upsertAccountSignerRecord('CWALLET', backupSigner)
+      await setActiveNetwork('mainnet')
+      expect(await getAccountSignerRecords('CWALLET')).toEqual([])
+
+      await setActiveNetwork('testnet')
+      expect(await getAccountSignerRecords('CWALLET')).toHaveLength(1)
+    })
+
+    it('deletes one record and leaves the others', async () => {
+      await upsertAccountSignerRecord('CWALLET', backupSigner)
+      await upsertAccountSignerRecord('CWALLET', { ...backupSigner, credentialId: 'cred-c' })
+
+      await deleteAccountSignerRecord('CWALLET', 'cred-b')
+      const records = await getAccountSignerRecords('CWALLET')
+      expect(records.map((r) => r.credentialId)).toEqual(['cred-c'])
+    })
+
+    it('is wiped by clearSession, since logout is a full local wipe', async () => {
+      await upsertAccountSignerRecord('CWALLET', backupSigner)
+
+      await clearSession()
+
+      expect(await getAccountSignerRecords('CWALLET')).toEqual([])
+    })
+  })
+
+  describe('passkey sequence counter', () => {
+    it('starts at 1 on a fresh install', async () => {
+      expect(await peekNextPasskeySeq()).toBe(1)
+    })
+
+    it('peeking does not advance the counter', async () => {
+      expect(await peekNextPasskeySeq()).toBe(1)
+      expect(await peekNextPasskeySeq()).toBe(1)
+      expect(await peekNextPasskeySeq()).toBe(1)
+    })
+
+    it('advances only once a passkey is confirmed', async () => {
+      await confirmPasskeySeq(await peekNextPasskeySeq())
+      expect(await peekNextPasskeySeq()).toBe(2)
+      await confirmPasskeySeq(2)
+      expect(await peekNextPasskeySeq()).toBe(3)
+    })
+
+    it('is monotonic under out-of-order or repeated commits', async () => {
+      await confirmPasskeySeq(5)
+      await confirmPasskeySeq(2)
+      await confirmPasskeySeq(5)
+      expect(await peekNextPasskeySeq()).toBe(6)
+    })
+
+    it('ignores nonsense commits', async () => {
+      await confirmPasskeySeq(0)
+      await confirmPasskeySeq(-3)
+      await confirmPasskeySeq(Number.NaN)
+      expect(await peekNextPasskeySeq()).toBe(1)
+    })
+
+    it('seeds past passkeys created before the counter existed, across networks', async () => {
+      await createAccount({
+        mode: 'passkey',
+        smartAccountAddress: 'CTESTNET1',
+        passkeyCredentialId: 'cred-t1',
+        passkeyKeyDataHex: 'aa',
+      })
+      await createAccount({ mode: 'multisig', smartAccountAddress: 'CTESTNETMULTI' })
+      await setActiveNetwork('mainnet')
+      await createAccount({
+        mode: 'passkey',
+        smartAccountAddress: 'CMAINNET1',
+        passkeyCredentialId: 'cred-m1',
+        passkeyKeyDataHex: 'bb',
+      })
+
+      // Two passkeys already named "Latch account 1" and "Latch account 2".
+      expect(await peekNextPasskeySeq()).toBe(3)
+    })
+
+    it('survives clearSession: LOGOUT cannot delete passkeys from the provider', async () => {
+      await confirmPasskeySeq(4)
+
+      await clearSession()
+
+      expect(await peekNextPasskeySeq()).toBe(5)
     })
   })
 })
