@@ -21,6 +21,7 @@ import { tryHandleDappMessage } from './dapp/handlers'
 import { tryHandleDepositMessage } from './deposit/handlers'
 import { ok, toSerializableError } from './messageResponse'
 import { tryHandleMigrationMessage } from './migration/handlers'
+import { gateBackgroundMessage } from './messageSource'
 import { tryHandleMultisigMessage } from './multisig/handlers'
 import { tryHandleNetworkMessage } from './network/handlers'
 import { tryHandleOnboardingMessage } from './onboarding/handlers'
@@ -33,8 +34,17 @@ import { tryHandleV1AuthMessage } from './v1Auth/handlers'
 
 initDappApprovalListeners()
 
-chrome.runtime.onMessage.addListener((rawMessage: BackgroundMessage, _sender, sendResponse) => {
-  const message = rawMessage as BackgroundMessage
+chrome.runtime.onMessage.addListener((rawMessage: BackgroundMessage, sender, sendResponse) => {
+  const gate = gateBackgroundMessage(rawMessage as BackgroundMessage, sender)
+  if (!gate.allowed) {
+    sendResponse({
+      ok: false,
+      error: gate.error,
+    } satisfies BackgroundResponse)
+    return false
+  }
+
+  const message = gate.message
 
   if (message.type === 'CANCEL_REQUEST') {
     const req = message.payload as CancelRequest
