@@ -89,7 +89,7 @@ chrome.runtime.onMessage.addListener((rawMessage: BackgroundMessage, sender, sen
     if (await tryHandleNetworkMessage(message, sendResponse, ok)) {
       return
     }
-    if (await tryHandleDappMessage(message, sendResponse, ok)) {
+    if (await tryHandleDappMessage(message, sendResponse, ok, sender)) {
       return
     }
     if (await tryHandleOnboardingMessage(message, sendResponse, ok)) {

@@ -8,6 +8,7 @@ vi.mock('../externalSign/orchestrator', () => ({
 }))
 
 import { ok } from '../messageResponse'
+import type { RuntimeSender } from '../messageSource'
 import {
   addPendingDappRequest,
   getDappPermissions,
@@ -26,10 +27,22 @@ import { tryHandleDappMessage } from './handlers'
 const SITE_A = 'https://a.example'
 const SITE_B = 'https://b.example'
 
+function pageSender(origin: string): RuntimeSender {
+  return {
+    id: chrome.runtime.id,
+    origin,
+    url: `${origin}/`,
+    tab: { id: 1, url: `${origin}/` },
+  }
+}
+
 function disconnect(origin: string) {
   const sendResponse = vi.fn()
   const message = { type: 'DAPP_DISCONNECT', payload: { origin } } as unknown as BackgroundMessage
-  return { sendResponse, handled: tryHandleDappMessage(message, sendResponse, ok) }
+  return {
+    sendResponse,
+    handled: tryHandleDappMessage(message, sendResponse, ok, pageSender(origin)),
+  }
 }
 
 function pageSessionStart(origin: string) {
@@ -38,7 +51,10 @@ function pageSessionStart(origin: string) {
     type: 'DAPP_PAGE_SESSION_START',
     payload: { origin },
   } as unknown as BackgroundMessage
-  return { sendResponse, handled: tryHandleDappMessage(message, sendResponse, ok) }
+  return {
+    sendResponse,
+    handled: tryHandleDappMessage(message, sendResponse, ok, pageSender(origin)),
+  }
 }
 
 function pendingRow(origin: string, id: string): PendingDappRequest {
@@ -48,6 +64,7 @@ function pendingRow(origin: string, id: string): PendingDappRequest {
 describe('DAPP_DISCONNECT', () => {
   beforeEach(() => {
     resetDappApprovalSessionForTests()
+    runExternalSignFlow.mockReset()
   })
 
   it('revokes the calling origin and leaves other sites connected', async () => {
@@ -109,7 +126,9 @@ describe('DAPP_DISCONNECT', () => {
       },
     } as unknown as BackgroundMessage
 
-    await expect(tryHandleDappMessage(message, vi.fn(), ok)).rejects.toThrow(/not connected/i)
+    await expect(tryHandleDappMessage(message, vi.fn(), ok, pageSender(SITE_A))).rejects.toThrow(
+      /not connected/i
+    )
     expect(runExternalSignFlow).not.toHaveBeenCalled()
   })
 
@@ -128,7 +147,9 @@ describe('DAPP_DISCONNECT', () => {
     } as unknown as BackgroundMessage
 
     // Must fail closed without opening another Grant Access window.
-    await expect(tryHandleDappMessage(message, vi.fn(), ok)).rejects.toThrow(/not connected/i)
+    await expect(tryHandleDappMessage(message, vi.fn(), ok, pageSender(SITE_A))).rejects.toThrow(
+      /not connected/i
+    )
     expect(openSpy).not.toHaveBeenCalled()
     expect(createSpy).not.toHaveBeenCalled()
   })
@@ -152,7 +173,7 @@ describe('DAPP_DISCONNECT', () => {
     } as unknown as BackgroundMessage
 
     // Starts approval (hangs until resolved) — prove it was not rejected as not_connected.
-    const approvalPromise = tryHandleDappMessage(getKey, vi.fn(), ok)
+    const approvalPromise = tryHandleDappMessage(getKey, vi.fn(), ok, pageSender(SITE_A))
     await vi.waitFor(() => {
       expect(pendingDappResolvers.size).toBe(1)
     })
@@ -181,5 +202,77 @@ describe('DAPP_DISCONNECT', () => {
 
     expect(sendResponse).toHaveBeenCalledWith({ ok: true, data: undefined })
     expect(removeSpy).toHaveBeenCalledWith(99)
+  })
+
+  it('rejects disconnect when payload origin does not match sender', async () => {
+    await setDappPermissions(SITE_A, ['getPublicKey'])
+
+    await expect(
+      tryHandleDappMessage(
+        {
+          type: 'DAPP_DISCONNECT',
+          payload: { origin: SITE_B },
+        } as unknown as BackgroundMessage,
+        vi.fn(),
+        ok,
+        pageSender(SITE_A)
+      )
+    ).rejects.toThrow(/does not match/)
+
+    expect(await getDappPermissions(SITE_A)).toEqual(['getPublicKey'])
+  })
+
+  it('passes senderUrl into provider sign flow', async () => {
+    await setDappPermissions(SITE_A, ['getPublicKey'])
+    runExternalSignFlow.mockResolvedValue({
+      status: 'signed',
+      signedXdr: 'SIGNED',
+      network: 'testnet',
+    })
+
+    const sendResponse = vi.fn()
+    await tryHandleDappMessage(
+      {
+        type: 'DAPP_SIGN_TRANSACTION',
+        payload: {
+          origin: SITE_A,
+          request: { xdr: 'AAAA', network: 'testnet', accountToSign: 'CABC' },
+        },
+      } as unknown as BackgroundMessage,
+      sendResponse,
+      ok,
+      pageSender(SITE_A)
+    )
+
+    expect(runExternalSignFlow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: 'provider',
+        senderUrl: `${SITE_A}/`,
+        request: expect.objectContaining({ origin: SITE_A }),
+      })
+    )
+  })
+
+  it('SET_DAPP_PERMISSIONS still uses payload dapp origin (extension UI)', async () => {
+    const sendResponse = vi.fn()
+    await tryHandleDappMessage(
+      {
+        type: 'SET_DAPP_PERMISSIONS',
+        payload: { origin: SITE_B, allowed: ['getPublicKey'] },
+      } as unknown as BackgroundMessage,
+      sendResponse,
+      ok,
+      {
+        id: chrome.runtime.id,
+        origin: `chrome-extension://${chrome.runtime.id}`,
+        url: `chrome-extension://${chrome.runtime.id}/popup.html`,
+      }
+    )
+
+    expect(sendResponse).toHaveBeenCalledWith({
+      ok: true,
+      data: { origin: SITE_B, allowed: ['getPublicKey'] },
+    })
+    expect(await getDappPermissions(SITE_B)).toEqual(['getPublicKey'])
   })
 })
