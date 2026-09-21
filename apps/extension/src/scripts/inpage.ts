@@ -59,7 +59,7 @@ type ProviderEventMessage = {
 
 type ProviderEventHandler = (payload: ProviderEventPayload) => void
 
-async function sendToBackground<TData>(type: string, payload: unknown): Promise<TData> {
+async function sendToBackground<TData>(method: string, payload: unknown): Promise<TData> {
   const messageId = Date.now() + Math.random()
 
   return new Promise((resolve, reject) => {
@@ -91,7 +91,7 @@ async function sendToBackground<TData>(type: string, payload: unknown): Promise<
       {
         source: LATCH_PROVIDER_REQUEST,
         messageId,
-        type,
+        method,
         payload,
       },
       window.location.origin
@@ -100,12 +100,12 @@ async function sendToBackground<TData>(type: string, payload: unknown): Promise<
 }
 
 async function sendToBackgroundWithTimeout<TData>(
-  type: string,
+  method: string,
   payload: unknown,
   timeoutMs = 2000
 ): Promise<TData> {
   return await Promise.race([
-    sendToBackground<TData>(type, payload),
+    sendToBackground<TData>(method, payload),
     new Promise<TData>((_, reject) => {
       window.setTimeout(
         () => reject(new LatchProviderError('Latch extension timeout', 'timeout')),
@@ -116,14 +116,14 @@ async function sendToBackgroundWithTimeout<TData>(
 }
 
 async function fetchActivePublicKey(): Promise<string> {
-  const data = await sendToBackground<{ publicKey: string }>('DAPP_GET_PUBLIC_KEY', {
+  const data = await sendToBackground<{ publicKey: string }>('getPublicKey', {
     origin: window.location.origin,
   })
   return data.publicKey
 }
 
 async function fetchActiveNetwork(): Promise<Network> {
-  const data = await sendToBackground<{ network: Network }>('GET_ACTIVE_NETWORK', {})
+  const data = await sendToBackground<{ network: Network }>('getNetwork', {})
   return data.network
 }
 
@@ -172,7 +172,7 @@ function installLatch() {
     [LATCH_PROVIDER_MARK]: true,
     async isConnected() {
       try {
-        await sendToBackgroundWithTimeout('PING_EXTENSION', {})
+        await sendToBackgroundWithTimeout('ping', {})
         return true
       } catch {
         return false
@@ -198,7 +198,7 @@ function installLatch() {
           })
 
           const data = await sendToBackground<{ response: SignTransactionResponse }>(
-            'DAPP_SIGN_TRANSACTION',
+            'signTransaction',
             {
               origin: window.location.origin,
               request: nativeRequest,
@@ -212,7 +212,7 @@ function installLatch() {
       }
 
       const data = await sendToBackground<{ response: SignTransactionResponse }>(
-        'DAPP_SIGN_TRANSACTION',
+        'signTransaction',
         {
           origin: window.location.origin,
           request: requestOrXdr,
@@ -240,7 +240,7 @@ function installLatch() {
       }
     },
     async openSignRequest(params: OpenSignRequestParams) {
-      await sendToBackground('DAPP_OPEN_SIGN_REQUEST', {
+      await sendToBackground('openSignRequest', {
         origin: window.location.origin,
         request: {
           network: params.network,
@@ -257,7 +257,7 @@ function installLatch() {
     async disconnect() {
       // Revokes this origin's allowlist entry only. Latch emits no event; the
       // dapp clears its own session once this resolves.
-      await sendToBackground('DAPP_DISCONNECT', {
+      await sendToBackground('disconnect', {
         origin: window.location.origin,
       })
     },

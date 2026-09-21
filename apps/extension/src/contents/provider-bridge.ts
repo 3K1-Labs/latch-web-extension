@@ -1,12 +1,16 @@
 /**
  * Isolated-world bridge: injects the page provider and forwards postMessage
  * to the background service worker (page context cannot use chrome.* APIs).
+ *
+ * Security: only public dapp methods are accepted. Page-supplied MessageTypes
+ * are ignored; origin is pinned to window.location.origin.
  */
 
 import type { PlasmoCSConfig } from 'plasmo'
 
 import type { LatchProviderEventMessage, Network } from '@latch/types'
 
+import { handleProviderBridgeRequest } from './providerBridgeRequest'
 import inpageUrl from 'url:../scripts/inpage.ts'
 
 export const config: PlasmoCSConfig = {
@@ -25,7 +29,10 @@ const DISCONNECTED_ORIGINS_KEY = 'latch.dappDisconnectedOrigins'
 type ProviderBridgeMessage = {
   source: typeof LATCH_PROVIDER_REQUEST
   messageId: number
-  type: string
+  /** Public method name (preferred). Page-supplied MessageType `type` is ignored. */
+  method?: unknown
+  /** Legacy/internal field — never trusted from the page. */
+  type?: unknown
   payload?: unknown
 }
 
@@ -114,24 +121,13 @@ window.addEventListener(
     if (event.source !== window) return
     const data = event.data as ProviderBridgeMessage
     if (!data || data.source !== LATCH_PROVIDER_REQUEST) return
-    if (typeof data.messageId !== 'number' || typeof data.type !== 'string') return
+    if (typeof data.messageId !== 'number') return
 
     void (async () => {
-      let res: BgRes<unknown>
-      try {
-        res = (await chrome.runtime.sendMessage({
-          type: data.type,
-          payload: data.payload,
-        })) as BgRes<unknown>
-      } catch (e) {
-        res = {
-          ok: false,
-          error: {
-            message: e instanceof Error ? e.message : String(e),
-            code: 'extension_unreachable',
-          },
-        }
-      }
+      const res = await handleProviderBridgeRequest(data, {
+        pageOrigin: window.location.origin,
+        sendMessage: (message) => chrome.runtime.sendMessage(message) as Promise<BgRes<unknown>>,
+      })
 
       window.postMessage(
         {

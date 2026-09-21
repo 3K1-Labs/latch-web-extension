@@ -113,6 +113,7 @@ export function createChromeMock() {
       },
     },
     runtime: {
+      id: 'test',
       lastError: undefined as { message: string } | undefined,
       getURL(path: string) {
         return `chrome-extension://test/${path}`
@@ -120,7 +121,14 @@ export function createChromeMock() {
       async sendMessage(message: any) {
         const listener = onMessageListeners[onMessageListeners.length - 1]
         if (!listener) throw new Error('No chrome.runtime.onMessage listener registered')
-        return await new Promise((resolve) => listener(message, {}, resolve))
+        // Default: extension UI sender (popup/sidepanel) so background integration
+        // tests keep the full message protocol.
+        const extensionSender = {
+          id: 'test',
+          origin: 'chrome-extension://test',
+          url: 'chrome-extension://test/popup.html',
+        }
+        return await new Promise((resolve) => listener(message, extensionSender, resolve))
       },
       onMessage: {
         addListener(cb: any) {
