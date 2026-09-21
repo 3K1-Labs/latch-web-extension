@@ -85,6 +85,81 @@ describe('gateBackgroundMessage', () => {
     }
   })
 
+  it('pins origin from sender.url over spoofed payload and tab.url', () => {
+    const gate = gateBackgroundMessage(
+      {
+        type: 'DAPP_GET_PUBLIC_KEY',
+        payload: { origin: 'https://spoof.example' },
+      } as BackgroundMessage,
+      {
+        id: EXT_ID,
+        url: 'https://iframe.example/embed',
+        origin: 'https://iframe.example',
+        tab: { id: 3, url: 'https://parent.example/' },
+      }
+    )
+    expect(gate.allowed).toBe(true)
+    if (gate.allowed) {
+      expect((gate.message.payload as { origin: string }).origin).toBe('https://iframe.example')
+    }
+  })
+
+  it('allows loopback http via tab.url when sender.url is missing', () => {
+    const gate = gateBackgroundMessage(
+      {
+        type: 'DAPP_DISCONNECT',
+        payload: { origin: 'https://spoof.example' },
+      } as BackgroundMessage,
+      {
+        id: EXT_ID,
+        tab: { id: 4, url: 'http://localhost:3000/dapp' },
+      }
+    )
+    expect(gate.allowed).toBe(true)
+    if (gate.allowed) {
+      expect((gate.message.payload as { origin: string }).origin).toBe('http://localhost:3000')
+    }
+  })
+
+  it('rejects missing sender URL / origin', () => {
+    const gate = gateBackgroundMessage(
+      {
+        type: 'DAPP_GET_PUBLIC_KEY',
+        payload: { origin: 'https://spoof.example' },
+      } as BackgroundMessage,
+      { id: EXT_ID, tab: { id: 5 } }
+    )
+    expect(gate.allowed).toBe(false)
+    if (!gate.allowed) expect(gate.error.code).toBe('invalid_origin')
+  })
+
+  it('rejects unsupported schemes and non-loopback http', () => {
+    for (const url of ['file:///tmp/x.html', 'javascript:alert(1)', 'http://evil.example/']) {
+      const gate = gateBackgroundMessage(
+        { type: 'DAPP_GET_PUBLIC_KEY', payload: {} } as BackgroundMessage,
+        { id: EXT_ID, url, tab: { id: 6 } }
+      )
+      expect(gate.allowed).toBe(false)
+      if (!gate.allowed) expect(gate.error.code).toBe('invalid_origin')
+    }
+  })
+
+  it('does not overwrite payload origin for extension UI SET_DAPP_PERMISSIONS', () => {
+    const gate = gateBackgroundMessage(
+      {
+        type: 'SET_DAPP_PERMISSIONS',
+        payload: { origin: 'https://managed-dapp.example', allowed: ['getPublicKey'] },
+      } as BackgroundMessage,
+      extensionSender
+    )
+    expect(gate.allowed).toBe(true)
+    if (gate.allowed) {
+      expect((gate.message.payload as { origin: string }).origin).toBe(
+        'https://managed-dapp.example'
+      )
+    }
+  })
+
   it('blocks CANCEL_REQUEST from content scripts', () => {
     const gate = gateBackgroundMessage(
       { type: 'CANCEL_REQUEST', payload: { requestId: 'x' } } as BackgroundMessage,

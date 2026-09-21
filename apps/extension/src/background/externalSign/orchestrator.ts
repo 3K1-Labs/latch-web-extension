@@ -35,15 +35,21 @@ function accountModeToSignerType(account: StoredAccount): SendSignerType {
   return account.mode === 'passkey' ? 'passkey' : 'freighter'
 }
 
+/**
+ * Prefer Chrome-attested senderUrl when present (provider / content-script path).
+ * Fall back to request.origin for sign-request-tab / UI-prepared sessions where
+ * senderUrl must stay unset so chrome-extension:// is not treated as the dapp.
+ */
 function resolveOrigin(request: ExternalSignRequest, senderUrl?: string): string {
-  if (request.origin?.trim()) return request.origin.trim()
   if (senderUrl) {
     try {
-      return new URL(senderUrl).origin
+      const origin = new URL(senderUrl).origin
+      if (origin && origin !== 'null') return origin
     } catch {
       // fall through
     }
   }
+  if (request.origin?.trim()) return request.origin.trim()
   return 'unknown'
 }
 

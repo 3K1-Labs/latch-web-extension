@@ -11,12 +11,14 @@ import {
   pinDappOrigin,
   unsupportedProviderError,
 } from '../dapp/publicDappProtocol'
+import {
+  invalidOriginError,
+  resolveTrustedDappOrigin,
+  type RuntimeSenderLike,
+} from '../dapp/trustedOrigin'
 
-type RuntimeSender = {
+export type RuntimeSender = RuntimeSenderLike & {
   id?: string
-  origin?: string
-  url?: string
-  tab?: { id?: number }
 }
 
 function extensionOrigin(): string {
@@ -54,7 +56,8 @@ export type MessageGateResult =
 
 /**
  * Content-script / webpage senders may only use CONTENT_SCRIPT_MESSAGE_TYPES.
- * For those messages, pin payload.origin to Chrome's attested sender.origin.
+ * For those messages, pin payload.origin to Chrome's attested sender URL origin
+ * (https / loopback http only). Missing or disallowed origins fail closed.
  */
 export function gateBackgroundMessage(
   message: BackgroundMessage,
@@ -68,17 +71,16 @@ export function gateBackgroundMessage(
     return { allowed: false, error: unsupportedProviderError() }
   }
 
-  const pageOrigin = sender?.origin?.trim()
-  if (!pageOrigin || pageOrigin === 'null') {
-    // CS without an attested origin — still allow type, but do not invent origin.
-    return { allowed: true, message }
+  const trustedOrigin = resolveTrustedDappOrigin(sender)
+  if (!trustedOrigin) {
+    return { allowed: false, error: invalidOriginError() }
   }
 
   return {
     allowed: true,
     message: {
       type: message.type as MessageType,
-      payload: pinDappOrigin(message.payload, pageOrigin),
+      payload: pinDappOrigin(message.payload, trustedOrigin),
     },
   }
 }

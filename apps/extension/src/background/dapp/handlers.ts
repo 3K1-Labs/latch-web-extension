@@ -1,8 +1,6 @@
 import type {
   BackgroundMessage,
-  DappDisconnectRequest,
   DappOpenSignRequestPayload,
-  DappPageSessionStartRequest,
   ExternalSignResult,
   GetDappPermissionsRequest,
   ListPendingDappRequestsResponse,
@@ -15,6 +13,13 @@ import { BackendError } from '../api/client'
 import { buildSignRequestSearchParams } from '../externalSign/parseSignRequest'
 import { runExternalSignFlow } from '../externalSign/orchestrator'
 import type { OkFn } from '../messageResponse'
+import type { RuntimeSender } from '../messageSource'
+import {
+  invalidOriginError,
+  payloadOriginMismatch,
+  resolveTrustedDappOrigin,
+  type RuntimeSenderLike,
+} from '../../dapp/trustedOrigin'
 import {
   addPendingDappRequest,
   clearDappOriginDisconnected,
@@ -39,11 +44,37 @@ import {
   waitForExternalSignDecision,
 } from './approvalSession'
 
+/**
+ * Chrome-attested origin for content-script dapp messages. Rejects when the
+ * payload still claims a different origin after the gate pin.
+ */
+function trustedOriginForDappMessage(
+  sender: RuntimeSenderLike | undefined,
+  payload: unknown
+): string {
+  const origin = resolveTrustedDappOrigin(sender)
+  if (!origin) {
+    const err = invalidOriginError()
+    throw new BackendError(err.message, { status: 403, code: err.code })
+  }
+  const mismatch = payloadOriginMismatch(payload, origin)
+  if (mismatch) {
+    throw new BackendError(mismatch.message, { status: 403, code: mismatch.code })
+  }
+  return origin
+}
+
+function senderUrlFrom(sender: RuntimeSenderLike | undefined): string | undefined {
+  const url = sender?.url?.trim() || sender?.tab?.url?.trim()
+  return url || undefined
+}
+
 /** Returns true if the message type was handled. */
 export async function tryHandleDappMessage(
   message: BackgroundMessage,
   sendResponse: (response: unknown) => void,
-  ok: OkFn
+  ok: OkFn,
+  sender?: RuntimeSender
 ): Promise<boolean> {
   switch (message.type) {
     case 'GET_DAPP_PERMISSIONS': {
@@ -149,20 +180,20 @@ export async function tryHandleDappMessage(
     }
 
     case 'DAPP_GET_PUBLIC_KEY': {
-      const req = message.payload as GetDappPermissionsRequest
-      const allowed = await getDappPermissions(req.origin)
+      const origin = trustedOriginForDappMessage(sender, message.payload)
+      const allowed = await getDappPermissions(origin)
       if (!allowed.includes('getPublicKey')) {
         // After disconnect / dismissed Grant Access, fail closed instead of
         // opening another prompt in a retry loop.
-        await assertDappConnectPromptAllowed(req.origin)
-        const approval = await requireDappApproval({ origin: req.origin, kind: 'getPublicKey' })
+        await assertDappConnectPromptAllowed(origin)
+        const approval = await requireDappApproval({ origin, kind: 'getPublicKey' })
         if (!approval.approved) {
           throw new BackendError(approval.errorMessage ?? 'User rejected', {
             status: 403,
             code: approval.errorCode ?? 'user_rejected',
           })
         }
-        await setDappPermissions(req.origin, mergePermissions(allowed, 'getPublicKey'))
+        await setDappPermissions(origin, mergePermissions(allowed, 'getPublicKey'))
       }
       const { accounts, activeAccountId } = await getAccounts()
       const active = accounts.find((a) => a.id === activeAccountId) ?? accounts[0]
@@ -174,37 +205,40 @@ export async function tryHandleDappMessage(
     }
 
     case 'DAPP_DISCONNECT': {
-      const req = message.payload as DappDisconnectRequest
+      const origin = trustedOriginForDappMessage(sender, message.payload)
       // Mark sticky first so an in-flight getPublicKey retry cannot race open a prompt.
-      await markDappOriginDisconnected(req.origin)
-      await clearDappPermissions(req.origin)
-      await rejectPendingDappRequestsForOrigin(req.origin)
+      await markDappOriginDisconnected(origin)
+      await clearDappPermissions(origin)
+      await rejectPendingDappRequestsForOrigin(origin)
       sendResponse(ok())
       return true
     }
 
     case 'DAPP_PAGE_SESSION_START': {
-      const req = message.payload as DappPageSessionStartRequest
-      await clearDappOriginDisconnected(req.origin)
+      const origin = trustedOriginForDappMessage(sender, message.payload)
+      await clearDappOriginDisconnected(origin)
       sendResponse(ok())
       return true
     }
 
     case 'DAPP_OPEN_SIGN_REQUEST': {
+      const origin = trustedOriginForDappMessage(sender, message.payload)
       const req = message.payload as DappOpenSignRequestPayload
-      const allowed = await getDappPermissions(req.origin)
+      const allowed = await getDappPermissions(origin)
       if (!allowed.includes('getPublicKey')) {
-        await assertDappConnectPromptAllowed(req.origin)
-        const approval = await requireDappApproval({ origin: req.origin, kind: 'getPublicKey' })
+        await assertDappConnectPromptAllowed(origin)
+        const approval = await requireDappApproval({ origin, kind: 'getPublicKey' })
         if (!approval.approved) {
           throw new BackendError(approval.errorMessage ?? 'User rejected', {
             status: 403,
             code: approval.errorCode ?? 'user_rejected',
           })
         }
-        await setDappPermissions(req.origin, mergePermissions(allowed, 'getPublicKey'))
+        await setDappPermissions(origin, mergePermissions(allowed, 'getPublicKey'))
       }
-      const query = buildSignRequestSearchParams(req.request)
+      // Bind nested request.origin to the attested site for the sign-request tab.
+      const request = { ...req.request, origin }
+      const query = buildSignRequestSearchParams(request)
       const url = chrome.runtime.getURL(`tabs/sign-request.html?${query}`)
       await chrome.tabs.create({ url })
       sendResponse(ok())
@@ -212,6 +246,7 @@ export async function tryHandleDappMessage(
     }
 
     case 'DAPP_SIGN_TRANSACTION': {
+      const origin = trustedOriginForDappMessage(sender, message.payload)
       const req = message.payload as {
         origin?: string
         request: {
@@ -221,7 +256,6 @@ export async function tryHandleDappMessage(
           submit?: boolean
         }
       }
-      const origin = req.origin ?? 'unknown'
       const allowed = await getDappPermissions(origin)
       if (!allowed.includes('getPublicKey')) {
         throw new BackendError('Site not connected — call getPublicKey first', {
@@ -239,7 +273,7 @@ export async function tryHandleDappMessage(
           origin,
           submit: req.request.submit !== false,
         },
-        senderUrl: undefined,
+        senderUrl: senderUrlFrom(sender),
         waitForDecision: waitForExternalSignDecision,
         enqueueReview: async (pending) => {
           await addPendingDappRequest(pending)
