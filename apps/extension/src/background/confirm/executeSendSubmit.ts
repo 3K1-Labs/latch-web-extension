@@ -2,14 +2,13 @@ import type {
   BuildSendTxRequest,
   BuildSendTxResponse,
   Network,
-  SetupSendRulesRequest,
-  StoredAccount,
   SubmitTxResponse,
 } from '@latch/types'
 
-import { BackendError, buildSendTx, setupSendRules } from '../backend'
+import { BackendError, buildSendTx } from '../backend'
 import { getActiveNetwork } from '../network/config'
 import { getAccounts } from '../storage'
+import { ensureSendRulesConfigured } from '../tx/ensureContextRules'
 import { signAndSubmitBuiltTxInBackground } from '../tx/signBuiltTx'
 import {
   buildSendRequestFromDraft,
@@ -34,23 +33,6 @@ function extractTransactionHash(data: SubmitTxResponse | null | undefined): stri
   if (typeof data.transactionHash === 'string') return data.transactionHash
   if (typeof data.hash === 'string') return data.hash
   return undefined
-}
-
-async function ensureSendRulesConfigured(args: {
-  setupBody: SetupSendRulesRequest
-  activeAccount: StoredAccount
-}): Promise<'configured' | 'already_configured'> {
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const network = args.setupBody.network ?? (await getActiveNetwork())
-    const setup = await setupSendRules({ ...args.setupBody, network })
-    if (setup.alreadyConfigured) return 'already_configured'
-    await signAndSubmitBuiltTxInBackground({
-      build: setup,
-      activeAccount: args.activeAccount,
-    })
-    if ((setup.remainingSetupCount ?? 0) <= 0) return 'configured'
-  }
-  throw new Error('Send setup did not complete')
 }
 
 export async function executeSendSubmitInBackground(args: {

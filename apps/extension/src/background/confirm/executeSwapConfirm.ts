@@ -8,10 +8,11 @@ import type {
 
 import { AQUARIUS_CONFIG, SOROSWAP_CONFIG } from '@latch/swap'
 
-import { BackendError, setupSwapRules } from '../backend'
+import { BackendError } from '../backend'
 import { getActiveNetwork } from '../network/config'
 import { getAccounts } from '../storage'
 import { runPrepareSwapTx } from '../swap/handlers'
+import { ensureSwapRulesConfigured } from '../tx/ensureContextRules'
 import { signAndSubmitBuiltTxInBackground } from '../tx/signBuiltTx'
 import { webauthnVerifierAddressFromEnv } from '../../ui/lib/latchEnv'
 import {
@@ -102,24 +103,7 @@ export async function executeSwapConfirmInBackground(args: {
       throw new Error(passkeySetupPrerequisiteError(activeAccount!) ?? 'Invalid swap setup details')
     }
 
-    for (let setupAttempt = 0; setupAttempt < 5; setupAttempt++) {
-      let setup
-      try {
-        const network = setupPayload.network ?? (await getActiveNetwork())
-        setup = await setupSwapRules({ ...setupPayload, network })
-      } catch (e) {
-        const shape = errShape(e)
-        if (shape.code === 'signer_already_exists') return
-        throw e instanceof Error ? e : new Error(String(e))
-      }
-      if (setup.alreadyConfigured) return
-      await signAndSubmitBuiltTxInBackground({
-        build: setup,
-        activeAccount: activeAccount!,
-      })
-      if ((setup.remainingSetupCount ?? 0) <= 0) return
-    }
-    throw new Error('Swap setup did not complete')
+    await ensureSwapRulesConfigured({ setupBody: setupPayload, activeAccount: activeAccount! })
   }
 
   if (isSoroswap) {
