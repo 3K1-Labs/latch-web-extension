@@ -248,6 +248,7 @@ export function buildPendingExternalSignRequest(args: {
     origin: args.origin,
     kind: 'externalSignReview',
     createdAt: Date.now(),
+    status: 'awaiting_user',
     signRequest: args.signRequest,
     prepared: args.prepared,
     localReview: args.localReview,
@@ -335,7 +336,14 @@ export async function runExternalSignFlow(args: {
   waitForDecision: WaitForExternalSignDecision
   enqueueReview: (pending: PendingDappRequest) => Promise<void>
   openPopup?: () => Promise<void>
-}): Promise<ExternalSignResult | RunExternalSignFlowPreparedResponse> {
+  /**
+   * When false, enqueue the review UI and return `{ pending: true, requestId }`
+   * without awaiting the user (provider path + CS poll). Default true.
+   */
+  awaitDecision?: boolean
+}): Promise<
+  ExternalSignResult | RunExternalSignFlowPreparedResponse | { pending: true; requestId: string }
+> {
   let signRequest = args.request
   try {
     const session = await prepareExternalSignSession({
@@ -353,7 +361,7 @@ export async function runExternalSignFlow(args: {
       source: args.source,
     })
 
-    // Register waiter before durable enqueue so LIST cannot treat this as an orphan.
+    // Register optional same-generation waiter before durable enqueue.
     const decisionPromise = args.waitForDecision(pending.id)
     await args.enqueueReview(pending)
 
@@ -369,6 +377,10 @@ export async function runExternalSignFlow(args: {
 
     if (args.openPopup) {
       await args.openPopup()
+    }
+
+    if (args.awaitDecision === false) {
+      return { pending: true, requestId: pending.id }
     }
 
     const decision = await decisionPromise

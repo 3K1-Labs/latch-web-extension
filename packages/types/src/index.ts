@@ -577,15 +577,28 @@ export type DappPermission = 'getPublicKey' | 'signTransaction'
 
 export type PendingDappRequestKind = DappPermission | 'externalSignReview'
 
+/** Lifecycle of a dApp connect/sign approval (persisted; survives MV3 SW restart). */
+export type DappRequestStatus = 'awaiting_user' | 'signing' | 'approved' | 'rejected' | 'expired'
+
 export interface PendingDappRequest {
   id: string
   origin: string
   kind: PendingDappRequestKind
   createdAt: number
+  /** Defaults to awaiting_user for rows created before status was required. */
+  status?: DappRequestStatus
+  updatedAt?: number
   signRequest?: import('./externalSign').ExternalSignRequest
   prepared?: import('./externalSign').PrepareSignResponse
   localReview?: import('./externalSign').ExternalSignLocalReview
   source?: import('./externalSign').ExternalSignSource
+  /** Terminal decision fields (set when approved/rejected/expired). */
+  errorMessage?: string
+  errorCode?: string
+  signedXdr?: string
+  txHash?: string
+  signedAuthEntry?: string
+  signedTxXdr?: string
 }
 
 export type ListPendingDappRequestsRequest = Record<string, never>
@@ -604,6 +617,26 @@ export interface ResolvePendingDappRequest {
   txHash?: string
   signedAuthEntry?: string
   signedTxXdr?: string
+}
+
+/** Content-script poll for a previously enqueued connect/sign request. */
+export interface DappPollRequestResultRequest {
+  requestId: string
+  /** Pinned by the CS gate to the attested page origin. */
+  origin?: string
+}
+
+export interface DappPollRequestResultResponse {
+  status: DappRequestStatus
+  publicKey?: string
+  response?: SignTransactionResponse
+  error?: { message: string; code?: string }
+}
+
+/** Enqueue ack when user approval is still required (CS then polls). */
+export interface DappRequestPendingResponse {
+  requestId: string
+  status: 'awaiting_user'
 }
 
 export interface GetDappPermissionsRequest {
@@ -633,18 +666,16 @@ export interface DappPageSessionStartRequest {
   origin: string
 }
 
-export interface DappGetPublicKeyResponse {
-  publicKey: string
-}
+export type DappGetPublicKeyResponse = { publicKey: string } | DappRequestPendingResponse
 
 export interface DappSignTransactionRequest {
   origin?: string
   request: SignTransactionRequest
 }
 
-export interface DappSignTransactionResponse {
-  response: SignTransactionResponse
-}
+export type DappSignTransactionResponse =
+  | { response: SignTransactionResponse }
+  | DappRequestPendingResponse
 
 export interface SerializableError {
   message: string
@@ -799,6 +830,7 @@ export type MessageType =
   | 'SET_DAPP_PERMISSIONS'
   | 'LIST_PENDING_DAPP_REQUESTS'
   | 'RESOLVE_PENDING_DAPP_REQUEST'
+  | 'DAPP_POLL_REQUEST_RESULT'
   | 'DAPP_GET_PUBLIC_KEY'
   | 'DAPP_SIGN_TRANSACTION'
   | 'DAPP_OPEN_SIGN_REQUEST'
@@ -954,6 +986,7 @@ export type BackgroundRequestPayloadByType = {
   SET_DAPP_PERMISSIONS: SetDappPermissionsRequest
   LIST_PENDING_DAPP_REQUESTS: ListPendingDappRequestsRequest
   RESOLVE_PENDING_DAPP_REQUEST: ResolvePendingDappRequest
+  DAPP_POLL_REQUEST_RESULT: DappPollRequestResultRequest
   DAPP_GET_PUBLIC_KEY: GetDappPermissionsRequest
   DAPP_SIGN_TRANSACTION: DappSignTransactionRequest
   DAPP_OPEN_SIGN_REQUEST: import('./externalSign').DappOpenSignRequestPayload
@@ -1158,6 +1191,7 @@ export type BackgroundResponseDataByType = {
   SET_DAPP_PERMISSIONS: GetDappPermissionsResponse
   LIST_PENDING_DAPP_REQUESTS: ListPendingDappRequestsResponse
   RESOLVE_PENDING_DAPP_REQUEST: undefined
+  DAPP_POLL_REQUEST_RESULT: DappPollRequestResultResponse
   DAPP_GET_PUBLIC_KEY: DappGetPublicKeyResponse
   DAPP_SIGN_TRANSACTION: DappSignTransactionResponse
   DAPP_OPEN_SIGN_REQUEST: undefined

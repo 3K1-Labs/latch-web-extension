@@ -7,6 +7,7 @@ import {
   openApprovalPopup,
   requireDappApproval,
   resetDappApprovalSessionForTests,
+  resolveDappRequestDecision,
   suppressGrantAccessPrompt,
   pendingDappResolvers,
 } from './approvalSession'
@@ -16,12 +17,12 @@ function failOpenPopup() {
 }
 
 describe('dapp approvalSession surface', () => {
-  beforeEach(() => {
-    resetDappApprovalSessionForTests()
+  beforeEach(async () => {
+    await resetDappApprovalSessionForTests()
   })
 
   afterEach(async () => {
-    resetDappApprovalSessionForTests()
+    await resetDappApprovalSessionForTests()
     await clearDappOriginDisconnected('https://a.example')
     vi.restoreAllMocks()
   })
@@ -87,7 +88,7 @@ describe('dapp approvalSession surface', () => {
 
     const requestId = [...pendingDappResolvers.keys()][0]
     expect(requestId).toBeTruthy()
-    pendingDappResolvers.get(requestId!)?.({ approved: true })
+    await resolveDappRequestDecision({ requestId: requestId!, approved: true })
 
     await expect(first).resolves.toEqual({ approved: true })
     await expect(second).resolves.toEqual({ approved: true })

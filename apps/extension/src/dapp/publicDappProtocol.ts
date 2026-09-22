@@ -30,6 +30,7 @@ const PUBLIC_METHOD_TO_MESSAGE_TYPE: Record<PublicDappMethod, MessageType> = {
 export const CONTENT_SCRIPT_MESSAGE_TYPES = [
   ...Object.values(PUBLIC_METHOD_TO_MESSAGE_TYPE),
   'DAPP_PAGE_SESSION_START',
+  'DAPP_POLL_REQUEST_RESULT',
 ] as const satisfies readonly MessageType[]
 
 export type ContentScriptMessageType = (typeof CONTENT_SCRIPT_MESSAGE_TYPES)[number]

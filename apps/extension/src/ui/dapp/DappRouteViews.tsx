@@ -118,8 +118,8 @@ export function DappRouteViews({
 
   useEffect(() => {
     function onStorage(changes: { [key: string]: chrome.storage.StorageChange }, area: string) {
-      if (area !== 'local') return
-      if (changes['latch.pendingDappRequests']) {
+      if (area !== 'session') return
+      if (changes['latch.dappRequests']) {
         void loadPendingDapp().catch(() => {})
       }
     }

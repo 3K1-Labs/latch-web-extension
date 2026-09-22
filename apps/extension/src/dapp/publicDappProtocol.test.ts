@@ -37,14 +37,17 @@ describe('publicDappProtocol', () => {
     expect(isPublicDappMethod('ping')).toBe(true)
   })
 
-  it('includes mapped types plus DAPP_PAGE_SESSION_START for content scripts', () => {
+  it('includes mapped types plus CS-only session/poll types', () => {
     expect(CONTENT_SCRIPT_MESSAGE_TYPES).toContain('PING_EXTENSION')
     expect(CONTENT_SCRIPT_MESSAGE_TYPES).toContain('DAPP_GET_PUBLIC_KEY')
     expect(CONTENT_SCRIPT_MESSAGE_TYPES).toContain('DAPP_PAGE_SESSION_START')
+    expect(CONTENT_SCRIPT_MESSAGE_TYPES).toContain('DAPP_POLL_REQUEST_RESULT')
     expect(isContentScriptAllowedMessageType('LOGOUT')).toBe(false)
     expect(isContentScriptAllowedMessageType('SET_DAPP_PERMISSIONS')).toBe(false)
     expect(isContentScriptAllowedMessageType('CANCEL_REQUEST')).toBe(false)
     expect(isContentScriptAllowedMessageType('DAPP_PAGE_SESSION_START')).toBe(true)
+    expect(isContentScriptAllowedMessageType('DAPP_POLL_REQUEST_RESULT')).toBe(true)
+    expect(isPublicDappMethod('DAPP_POLL_REQUEST_RESULT')).toBe(false)
   })
 
   it('returns a stable unsupported_method error', () => {

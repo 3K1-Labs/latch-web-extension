@@ -147,4 +147,40 @@ describe('handleProviderBridgeRequest allowlist', () => {
     expect(res.ok).toBe(false)
     expect(res.error?.code).toBe('validation_error')
   })
+
+  it('polls until approved after a pending getPublicKey ack', async () => {
+    const sendMessage = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        data: { requestId: 'req-1', status: 'awaiting_user' },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: { status: 'awaiting_user' },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: { status: 'approved', publicKey: 'CABC' },
+      })
+
+    const res = await handleProviderBridgeRequest(
+      {
+        messageId: 10,
+        method: 'getPublicKey',
+        payload: { origin: 'https://app.example' },
+      },
+      { pageOrigin: 'https://app.example', sendMessage }
+    )
+
+    expect(sendMessage).toHaveBeenCalledWith({
+      type: 'DAPP_GET_PUBLIC_KEY',
+      payload: { origin: 'https://app.example' },
+    })
+    expect(sendMessage).toHaveBeenCalledWith({
+      type: 'DAPP_POLL_REQUEST_RESULT',
+      payload: { requestId: 'req-1', origin: 'https://app.example' },
+    })
+    expect(res).toEqual({ ok: true, data: { publicKey: 'CABC' } })
+  })
 })
