@@ -91,6 +91,7 @@ describe('handleProviderBridgeRequest allowlist', () => {
 
   it('maps openSignRequest and pins nested request.origin', async () => {
     const sendMessage = vi.fn().mockResolvedValue({ ok: true })
+    const smart = 'CA3D5KRYM6CB7OWQ6TWYRR3Z4T7GNZLKERYNZGGA5SOAOPIFY6YQGAXE'
 
     await handleProviderBridgeRequest(
       {
@@ -100,7 +101,11 @@ describe('handleProviderBridgeRequest allowlist', () => {
           origin: 'https://evil.example',
           request: {
             origin: 'https://evil.example',
+            network: 'testnet',
+            smartAccountAddress: smart,
             unsignedTxXdr: 'AAAA',
+            callback: 'https://app.example/cb',
+            requestId: 'rid-1',
           },
         },
       },
@@ -113,9 +118,33 @@ describe('handleProviderBridgeRequest allowlist', () => {
         origin: 'https://app.example',
         request: {
           origin: 'https://app.example',
+          network: 'testnet',
+          smartAccountAddress: smart,
           unsignedTxXdr: 'AAAA',
+          callback: 'https://app.example/cb',
+          requestId: 'rid-1',
         },
       },
     })
+  })
+
+  it('rejects malformed signTransaction without calling sendMessage', async () => {
+    const sendMessage = vi.fn()
+
+    const res = await handleProviderBridgeRequest(
+      {
+        messageId: 7,
+        method: 'signTransaction',
+        payload: {
+          origin: 'https://app.example',
+          request: { xdr: 'AAAA', network: 'devnet', accountToSign: 'CABC' },
+        },
+      },
+      { pageOrigin: 'https://app.example', sendMessage }
+    )
+
+    expect(sendMessage).not.toHaveBeenCalled()
+    expect(res.ok).toBe(false)
+    expect(res.error?.code).toBe('validation_error')
   })
 })

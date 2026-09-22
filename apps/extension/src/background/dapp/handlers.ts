@@ -1,6 +1,7 @@
 import type {
   BackgroundMessage,
   DappOpenSignRequestPayload,
+  DappSignTransactionRequest,
   ExternalSignResult,
   GetDappPermissionsRequest,
   ListPendingDappRequestsResponse,
@@ -14,6 +15,12 @@ import { buildSignRequestSearchParams } from '../externalSign/parseSignRequest'
 import { runExternalSignFlow } from '../externalSign/orchestrator'
 import type { OkFn } from '../messageResponse'
 import type { RuntimeSender } from '../messageSource'
+import {
+  parseDappOpenSignRequestPayload,
+  parseDappSignTransactionPayload,
+  parseOriginOnlyPayload,
+  PublicDappPayloadError,
+} from '../../dapp/publicDappPayload'
 import {
   invalidOriginError,
   payloadOriginMismatch,
@@ -67,6 +74,13 @@ function trustedOriginForDappMessage(
 function senderUrlFrom(sender: RuntimeSenderLike | undefined): string | undefined {
   const url = sender?.url?.trim() || sender?.tab?.url?.trim()
   return url || undefined
+}
+
+function rethrowPayloadValidation(e: unknown): never {
+  if (e instanceof PublicDappPayloadError) {
+    throw new BackendError(e.message, { status: 400, code: e.code })
+  }
+  throw e
 }
 
 /** Returns true if the message type was handled. */
@@ -180,7 +194,13 @@ export async function tryHandleDappMessage(
     }
 
     case 'DAPP_GET_PUBLIC_KEY': {
-      const origin = trustedOriginForDappMessage(sender, message.payload)
+      let req: GetDappPermissionsRequest
+      try {
+        req = parseOriginOnlyPayload(message.payload)
+      } catch (e) {
+        rethrowPayloadValidation(e)
+      }
+      const origin = trustedOriginForDappMessage(sender, req)
       const allowed = await getDappPermissions(origin)
       if (!allowed.includes('getPublicKey')) {
         // After disconnect / dismissed Grant Access, fail closed instead of
@@ -205,7 +225,13 @@ export async function tryHandleDappMessage(
     }
 
     case 'DAPP_DISCONNECT': {
-      const origin = trustedOriginForDappMessage(sender, message.payload)
+      let req: GetDappPermissionsRequest
+      try {
+        req = parseOriginOnlyPayload(message.payload)
+      } catch (e) {
+        rethrowPayloadValidation(e)
+      }
+      const origin = trustedOriginForDappMessage(sender, req)
       // Mark sticky first so an in-flight getPublicKey retry cannot race open a prompt.
       await markDappOriginDisconnected(origin)
       await clearDappPermissions(origin)
@@ -215,15 +241,26 @@ export async function tryHandleDappMessage(
     }
 
     case 'DAPP_PAGE_SESSION_START': {
-      const origin = trustedOriginForDappMessage(sender, message.payload)
+      let req: GetDappPermissionsRequest
+      try {
+        req = parseOriginOnlyPayload(message.payload)
+      } catch (e) {
+        rethrowPayloadValidation(e)
+      }
+      const origin = trustedOriginForDappMessage(sender, req)
       await clearDappOriginDisconnected(origin)
       sendResponse(ok())
       return true
     }
 
     case 'DAPP_OPEN_SIGN_REQUEST': {
-      const origin = trustedOriginForDappMessage(sender, message.payload)
-      const req = message.payload as DappOpenSignRequestPayload
+      let req: DappOpenSignRequestPayload
+      try {
+        req = parseDappOpenSignRequestPayload(message.payload)
+      } catch (e) {
+        rethrowPayloadValidation(e)
+      }
+      const origin = trustedOriginForDappMessage(sender, req)
       const allowed = await getDappPermissions(origin)
       if (!allowed.includes('getPublicKey')) {
         await assertDappConnectPromptAllowed(origin)
@@ -246,16 +283,13 @@ export async function tryHandleDappMessage(
     }
 
     case 'DAPP_SIGN_TRANSACTION': {
-      const origin = trustedOriginForDappMessage(sender, message.payload)
-      const req = message.payload as {
-        origin?: string
-        request: {
-          xdr: string
-          network: 'testnet' | 'mainnet'
-          accountToSign: string
-          submit?: boolean
-        }
+      let req: DappSignTransactionRequest
+      try {
+        req = parseDappSignTransactionPayload(message.payload)
+      } catch (e) {
+        rethrowPayloadValidation(e)
       }
+      const origin = trustedOriginForDappMessage(sender, req)
       const allowed = await getDappPermissions(origin)
       if (!allowed.includes('getPublicKey')) {
         throw new BackendError('Site not connected — call getPublicKey first', {
