@@ -14,8 +14,17 @@ import { assessExternalSignReview } from '@latch/stellar'
 import { BackendError, fetchSignPayload, prepareSign } from '../backend'
 import { getActiveNetwork, networkPassphraseFor } from '../network/config'
 import { getAccounts } from '../storage'
+import {
+  contextSetupErrShape,
+  contextSetupKey,
+  ensureSendRulesConfigured,
+  ensureSwapRulesConfigured,
+  withInflightContextSetup,
+} from '../tx/ensureContextRules'
+import { isNoContextRuleError, isPrepareSignMissingSetupError } from '../../ui/lib/sendTx'
 import { isOriginAllowedForSigning } from './allowList'
 import { assertAllowedCallbackUrl } from './callbackUrl'
+import { resolveExternalSignContextSetup } from './contextRuleSetup'
 
 export type ExternalSignDecision = {
   approved: boolean
@@ -98,6 +107,72 @@ async function getActiveAccountOrThrow(): Promise<StoredAccount> {
   return active
 }
 
+type PrepareSignArgs = Parameters<typeof prepareSign>[0]
+
+async function runContextRuleSetup(args: {
+  unsignedTxXdr: string
+  network: ExternalSignRequest['network']
+  account: StoredAccount
+}): Promise<'configured' | 'already_configured'> {
+  const setup = resolveExternalSignContextSetup({
+    unsignedTxXdr: args.unsignedTxXdr,
+    network: args.network,
+    account: args.account,
+  })
+  const key = contextSetupKey({
+    network: args.network,
+    smartAccountAddress: args.account.smartAccountAddress!,
+    kind: setup.kind,
+    target: setup.target,
+  })
+
+  try {
+    return await withInflightContextSetup(key, () =>
+      setup.kind === 'send'
+        ? ensureSendRulesConfigured({ setupBody: setup.body, activeAccount: args.account })
+        : ensureSwapRulesConfigured({ setupBody: setup.body, activeAccount: args.account })
+    )
+  } catch (e) {
+    if (e instanceof BackendError) throw e
+    throw new BackendError(e instanceof Error ? e.message : String(e), {
+      status: 400,
+      code: 'context_rule_setup_failed',
+    })
+  }
+}
+
+/**
+ * prepare-sign fails closed when the smart account has no context rule for the
+ * contract the dapp wants to call. Send and swap confirm already recover by
+ * running one-time setup and retrying, so mirror that here — otherwise a cold
+ * account can never reach review. Setup itself may need several transactions
+ * (`remainingSetupCount`), but prepare-sign is attempted at most twice.
+ */
+async function prepareSignWithContextRuleRecovery(args: {
+  prepareArgs: PrepareSignArgs
+  unsignedTxXdr: string
+  network: ExternalSignRequest['network']
+  account: StoredAccount
+}): Promise<PrepareSignResponse> {
+  try {
+    return await prepareSign(args.prepareArgs)
+  } catch (e) {
+    const shape = contextSetupErrShape(e)
+    if (!isPrepareSignMissingSetupError(shape)) throw e
+
+    const setupResult = await runContextRuleSetup({
+      unsignedTxXdr: args.unsignedTxXdr,
+      network: args.network,
+      account: args.account,
+    })
+    // An opaque 400 is not proof of missing rules: if nothing needed setting up,
+    // the original failure was something else and retrying would hide it.
+    if (setupResult === 'already_configured' && !isNoContextRuleError(shape)) throw e
+
+    return await prepareSign(args.prepareArgs)
+  }
+}
+
 export async function prepareExternalSignSession(args: {
   source: ExternalSignSource
   request: ExternalSignRequest
@@ -132,12 +207,17 @@ export async function prepareExternalSignSession(args: {
   }
 
   const signerType = accountModeToSignerType(active)
-  const prepared = await prepareSign({
-    network: signRequest.network,
-    smartAccountAddress: signRequest.smartAccountAddress,
+  const prepared = await prepareSignWithContextRuleRecovery({
+    prepareArgs: {
+      network: signRequest.network,
+      smartAccountAddress: signRequest.smartAccountAddress,
+      unsignedTxXdr,
+      signerType,
+      signerG: active.gAddress,
+    },
     unsignedTxXdr,
-    signerType,
-    signerG: active.gAddress,
+    network: signRequest.network,
+    account: active,
   })
 
   const activeNetwork = await getActiveNetwork()
