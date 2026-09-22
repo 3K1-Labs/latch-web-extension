@@ -26,6 +26,8 @@ import { tryHandleDappMessage } from './handlers'
 
 const SITE_A = 'https://a.example'
 const SITE_B = 'https://b.example'
+/** Known-valid Stellar contract id used across extension tests. */
+const SMART = 'CA3D5KRYM6CB7OWQ6TWYRR3Z4T7GNZLKERYNZGGA5SOAOPIFY6YQGAXE'
 
 function pageSender(origin: string): RuntimeSender {
   return {
@@ -122,7 +124,7 @@ describe('DAPP_DISCONNECT', () => {
       type: 'DAPP_SIGN_TRANSACTION',
       payload: {
         origin: SITE_A,
-        request: { xdr: 'AAAA', network: 'testnet', accountToSign: 'CABC' },
+        request: { xdr: 'AAAA', network: 'testnet', accountToSign: SMART },
       },
     } as unknown as BackgroundMessage
 
@@ -236,7 +238,7 @@ describe('DAPP_DISCONNECT', () => {
         type: 'DAPP_SIGN_TRANSACTION',
         payload: {
           origin: SITE_A,
-          request: { xdr: 'AAAA', network: 'testnet', accountToSign: 'CABC' },
+          request: { xdr: 'AAAA', network: 'testnet', accountToSign: SMART },
         },
       } as unknown as BackgroundMessage,
       sendResponse,
@@ -251,6 +253,27 @@ describe('DAPP_DISCONNECT', () => {
         request: expect.objectContaining({ origin: SITE_A }),
       })
     )
+  })
+
+  it('rejects malformed signTransaction before runExternalSignFlow', async () => {
+    await setDappPermissions(SITE_A, ['getPublicKey'])
+
+    await expect(
+      tryHandleDappMessage(
+        {
+          type: 'DAPP_SIGN_TRANSACTION',
+          payload: {
+            origin: SITE_A,
+            request: { xdr: 'AAAA', network: 'devnet', accountToSign: SMART },
+          },
+        } as unknown as BackgroundMessage,
+        vi.fn(),
+        ok,
+        pageSender(SITE_A)
+      )
+    ).rejects.toThrow(/network/)
+
+    expect(runExternalSignFlow).not.toHaveBeenCalled()
   })
 
   it('SET_DAPP_PERMISSIONS still uses payload dapp origin (extension UI)', async () => {

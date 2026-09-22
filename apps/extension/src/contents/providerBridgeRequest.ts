@@ -9,6 +9,7 @@ import {
   publicMethodToMessageType,
   unsupportedProviderError,
 } from '../dapp/publicDappProtocol'
+import { tryParsePublicDappPayload } from '../dapp/publicDappPayload'
 
 export type ProviderBridgeRequest = {
   messageId: number
@@ -23,7 +24,8 @@ type BgRes<T> = { ok: boolean; data?: T; error?: { message: string; code?: strin
 type SendMessageFn = (message: { type: string; payload: unknown }) => Promise<BgRes<unknown>>
 
 /**
- * Handle one page → bridge request. Rejects non-public methods before sendMessage.
+ * Handle one page → bridge request. Rejects non-public methods and malformed
+ * payloads before sendMessage.
  */
 export async function handleProviderBridgeRequest(
   data: ProviderBridgeRequest,
@@ -36,10 +38,17 @@ export async function handleProviderBridgeRequest(
     return { ok: false, error: unsupportedProviderError() }
   }
 
+  const type = publicMethodToMessageType(data.method)
+  const pinned = pinDappOrigin(data.payload, opts.pageOrigin)
+  const parsed = tryParsePublicDappPayload(type, pinned)
+  if (!parsed.ok) {
+    return { ok: false, error: parsed.error }
+  }
+
   try {
     return (await opts.sendMessage({
-      type: publicMethodToMessageType(data.method),
-      payload: pinDappOrigin(data.payload, opts.pageOrigin),
+      type,
+      payload: parsed.payload,
     })) as BgRes<unknown>
   } catch (e) {
     return {

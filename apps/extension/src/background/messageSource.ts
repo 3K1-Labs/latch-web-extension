@@ -11,6 +11,7 @@ import {
   pinDappOrigin,
   unsupportedProviderError,
 } from '../dapp/publicDappProtocol'
+import { tryParsePublicDappPayload } from '../dapp/publicDappPayload'
 import {
   invalidOriginError,
   resolveTrustedDappOrigin,
@@ -76,11 +77,17 @@ export function gateBackgroundMessage(
     return { allowed: false, error: invalidOriginError() }
   }
 
+  const pinned = pinDappOrigin(message.payload, trustedOrigin)
+  const parsed = tryParsePublicDappPayload(message.type, pinned)
+  if (!parsed.ok) {
+    return { allowed: false, error: parsed.error }
+  }
+
   return {
     allowed: true,
     message: {
       type: message.type as MessageType,
-      payload: pinDappOrigin(message.payload, trustedOrigin),
+      payload: parsed.payload,
     },
   }
 }

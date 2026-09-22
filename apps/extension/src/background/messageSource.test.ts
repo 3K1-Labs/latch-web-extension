@@ -167,4 +167,23 @@ describe('gateBackgroundMessage', () => {
     )
     expect(gate.allowed).toBe(false)
   })
+
+  it('rejects malformed DAPP_SIGN_TRANSACTION from content scripts', () => {
+    const gate = gateBackgroundMessage(
+      {
+        type: 'DAPP_SIGN_TRANSACTION',
+        payload: {
+          origin: 'https://app.example',
+          request: {
+            xdr: 'AAAA',
+            network: 'devnet',
+            accountToSign: 'CA3D5KRYM6CB7OWQ6TWYRR3Z4T7GNZLKERYNZGGA5SOAOPIFY6YQGAXE',
+          },
+        },
+      } as BackgroundMessage,
+      pageSender
+    )
+    expect(gate.allowed).toBe(false)
+    if (!gate.allowed) expect(gate.error.code).toBe('validation_error')
+  })
 })
