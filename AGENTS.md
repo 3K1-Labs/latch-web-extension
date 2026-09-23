@@ -266,6 +266,15 @@ pnpm test        # run all tests
 pnpm format      # prettier across repo
 ```
 
+### Screen tests
+
+For a lightweight UI smoke test (props-only, no LatchRoot):
+
+1. Put `// @vitest-environment jsdom` at the top of the `*.test.tsx` file (default Vitest env stays `node`).
+2. Render a screen that already takes props — see [`HistoryScreen.test.tsx`](apps/extension/src/ui/screens/history/HistoryScreen.test.tsx).
+3. Pass data in; do not fetch, sign, or mount `LatchRoot`.
+4. Run `pnpm --filter @latch/extension test`.
+
 ## What NOT to do
 
 - Do not add MetaMask-style middleware stacks — not needed for Stellar
