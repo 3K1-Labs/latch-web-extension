@@ -151,7 +151,7 @@ describe('runMigrationDiscover', () => {
     )
   })
 
-  it('throws when Horizon JSON is unparseable as an account', async () => {
+  it('throws when Horizon JSON is unparsable as an account', async () => {
     const g = Keypair.random().publicKey()
     const { account } = await createAccount({
       mode: 'mnemonic',
