@@ -2,15 +2,19 @@ import type { ExternalSignResult, PendingDappRequest, SignTransactionResponse } 
 
 import { BackendError } from '../api/client'
 import type { ExternalSignDecision } from '../externalSign/orchestrator'
+import { isDappOriginDisconnected } from '../storage'
 import {
-  addPendingDappRequest,
-  clearPendingDappRequests,
-  isDappOriginDisconnected,
-  listPendingDappRequests,
-  removePendingDappRequest,
-} from '../storage'
+  clearAllDappRequests,
+  findLiveDappRequest,
+  listLiveDappRequests,
+  resolveDappRequest,
+  resetDappRequestStateForTests,
+  upsertDappRequest,
+  type DappRequestRecord,
+} from './requestState'
 
 type PendingResolver = (result: ExternalSignDecision) => void
+/** Same-generation fast-path only — session storage is authoritative. */
 export const pendingDappResolvers = new Map<string, PendingResolver>()
 
 /** Durable approval windows Latch opened — keyed for focus/reuse and cleanup. */
@@ -69,19 +73,80 @@ export async function assertDappConnectPromptAllowed(origin: string): Promise<vo
   }
 }
 
+function decisionFromRecord(record: DappRequestRecord): ExternalSignDecision {
+  if (record.status === 'approved') {
+    return {
+      approved: true,
+      signedXdr: record.signedXdr,
+      txHash: record.txHash,
+      signedAuthEntry: record.signedAuthEntry,
+      signedTxXdr: record.signedTxXdr,
+    }
+  }
+  return {
+    approved: false,
+    errorCode: record.errorCode,
+    errorMessage: record.errorMessage,
+  }
+}
+
+function wakeResolver(requestId: string, decision: ExternalSignDecision): void {
+  const resolver = pendingDappResolvers.get(requestId)
+  pendingDappResolvers.delete(requestId)
+  resolver?.(decision)
+}
+
+/**
+ * Register an optional same-generation waiter. Authoritative completion is via
+ * session storage + poll (or resolveDappRequestDecision).
+ */
 export function waitForExternalSignDecision(requestId: string): Promise<ExternalSignDecision> {
   return new Promise((resolve) => {
     pendingDappResolvers.set(requestId, resolve)
   })
 }
 
-function rejectAllPendingDappRequests(decision: ExternalSignDecision = { approved: false }) {
-  for (const [requestId, resolver] of pendingDappResolvers.entries()) {
-    resolver(decision)
-    pendingDappResolvers.delete(requestId)
+/**
+ * Persist a terminal decision, wake any same-generation waiter, and return the
+ * stored row. Idempotent when already terminal.
+ */
+export async function resolveDappRequestDecision(
+  req: Parameters<typeof resolveDappRequest>[0]
+): Promise<DappRequestRecord | null> {
+  const { record } = await resolveDappRequest(req)
+  if (!record) {
+    wakeResolver(req.requestId, {
+      approved: req.approved,
+      errorMessage: req.errorMessage,
+      errorCode: req.errorCode,
+      signedXdr: req.signedXdr,
+      txHash: req.txHash,
+      signedAuthEntry: req.signedAuthEntry,
+      signedTxXdr: req.signedTxXdr,
+    })
+    return null
+  }
+  wakeResolver(req.requestId, decisionFromRecord(record))
+  return record
+}
+
+async function rejectAllPendingDappRequests(decision: ExternalSignDecision = { approved: false }) {
+  const live = await listLiveDappRequests()
+  for (const pending of live) {
+    await resolveDappRequestDecision({
+      requestId: pending.id,
+      approved: decision.approved,
+      errorCode: decision.errorCode,
+      errorMessage: decision.errorMessage,
+      signedXdr: decision.signedXdr,
+      txHash: decision.txHash,
+      signedAuthEntry: decision.signedAuthEntry,
+      signedTxXdr: decision.signedTxXdr,
+    })
   }
   inflightApprovals.clear()
-  void clearPendingDappRequests()
+  // Also clear any leftover session rows (including terminal) so the queue is empty.
+  await clearAllDappRequests()
 }
 
 async function closeApprovalWindowsForOrigin(origin: string): Promise<void> {
@@ -109,17 +174,13 @@ export async function closeApprovalWindowForOrigin(origin: string): Promise<void
 export async function rejectPendingDappRequestsForOrigin(origin: string): Promise<void> {
   await closeApprovalWindowsForOrigin(origin)
 
-  const stored = await listPendingDappRequests()
+  const stored = await listLiveDappRequests()
   for (const pending of stored) {
     if (pending.origin !== origin) continue
     const key = approvalKey(pending.origin, pending.kind)
     inflightApprovals.delete(key)
-    const resolver = pendingDappResolvers.get(pending.id)
-    pendingDappResolvers.delete(pending.id)
-    await removePendingDappRequest(pending.id)
-    // errorMessage is required for the code to survive decisionToExternalSignResult;
-    // without it the dapp is told the user rejected.
-    resolver?.({
+    await resolveDappRequestDecision({
+      requestId: pending.id,
       approved: false,
       errorCode: 'not_connected',
       errorMessage: 'Site disconnected from Latch',
@@ -141,7 +202,7 @@ function rejectPendingOnWindowClose(windowId: number) {
   }
   if (closedOrigin) suppressGrantAccessPrompt(closedOrigin)
 
-  rejectAllPendingDappRequests({ approved: false })
+  void rejectAllPendingDappRequests({ approved: false })
 }
 
 export function initDappApprovalListeners() {
@@ -202,22 +263,56 @@ export async function openApprovalPopup(origin?: string): Promise<number | undef
   return undefined
 }
 
-export async function requireDappApproval(args: {
+function registerInflight(
+  origin: string,
+  kind: PendingDappRequest['kind'],
+  requestId: string,
+  promise: Promise<ExternalSignDecision>
+): void {
+  if (kind !== 'getPublicKey') return
+  const key = approvalKey(origin, kind)
+  inflightApprovals.set(key, { requestId, promise })
+  void promise.finally(() => {
+    const current = inflightApprovals.get(key)
+    if (current?.requestId === requestId) inflightApprovals.delete(key)
+  })
+}
+
+/**
+ * Enqueue an approval request and open the UI without waiting for the user.
+ * Content scripts poll `DAPP_POLL_REQUEST_RESULT` for the terminal result.
+ * Returns a same-generation promise for callers that still await in-process.
+ */
+export async function enqueueDappApproval(args: {
   origin: string
   kind: PendingDappRequest['kind']
   signRequest?: PendingDappRequest['signRequest']
   prepared?: PendingDappRequest['prepared']
+  localReview?: PendingDappRequest['localReview']
   source?: PendingDappRequest['source']
-}): Promise<ExternalSignDecision> {
-  // Connect prompts only — external sign reviews are one-shot per tx.
+}): Promise<{ requestId: string; decisionPromise: Promise<ExternalSignDecision> }> {
   if (args.kind === 'getPublicKey') {
     await assertDappConnectPromptAllowed(args.origin)
 
+    const existing = await findLiveDappRequest({ origin: args.origin, kind: args.kind })
+    if (existing) {
+      const key = approvalKey(args.origin, args.kind)
+      const inflight = inflightApprovals.get(key)
+      if (inflight && inflight.requestId === existing.id) {
+        await openApprovalPopup(args.origin)
+        return { requestId: existing.id, decisionPromise: inflight.promise }
+      }
+      const promise = waitForExternalSignDecision(existing.id)
+      registerInflight(args.origin, args.kind, existing.id, promise)
+      await openApprovalPopup(args.origin)
+      return { requestId: existing.id, decisionPromise: promise }
+    }
+
     const key = approvalKey(args.origin, args.kind)
-    const existing = inflightApprovals.get(key)
-    if (existing && pendingDappResolvers.has(existing.requestId)) {
-      // Share the first caller's window + decision — do not spawn another popup.
-      return await existing.promise
+    const mem = inflightApprovals.get(key)
+    if (mem) {
+      await openApprovalPopup(args.origin)
+      return { requestId: mem.requestId, decisionPromise: mem.promise }
     }
   }
 
@@ -227,34 +322,45 @@ export async function requireDappApproval(args: {
     origin: args.origin,
     kind: args.kind,
     createdAt: Date.now(),
+    status: 'awaiting_user',
     signRequest: args.signRequest,
     prepared: args.prepared,
+    localReview: args.localReview,
     source: args.source,
   }
-  // Register waiter before durable enqueue so LIST cannot treat this as an orphan.
+
   const decisionPromise = waitForExternalSignDecision(requestId)
+  registerInflight(args.origin, args.kind, requestId, decisionPromise)
 
-  if (args.kind === 'getPublicKey') {
-    const key = approvalKey(args.origin, args.kind)
-    inflightApprovals.set(key, { requestId, promise: decisionPromise })
-    void decisionPromise.finally(() => {
-      const current = inflightApprovals.get(key)
-      if (current?.requestId === requestId) inflightApprovals.delete(key)
-    })
-  }
-
-  await addPendingDappRequest(pending)
+  await upsertDappRequest(pending, 'awaiting_user')
   await openApprovalPopup(args.origin)
+  return { requestId, decisionPromise }
+}
+
+/**
+ * Enqueue + await a decision (used by openSignRequest connect and any
+ * same-SW awaiters). Prefer enqueueDappApproval + poll for provider methods.
+ */
+export async function requireDappApproval(args: {
+  origin: string
+  kind: PendingDappRequest['kind']
+  signRequest?: PendingDappRequest['signRequest']
+  prepared?: PendingDappRequest['prepared']
+  source?: PendingDappRequest['source']
+}): Promise<ExternalSignDecision> {
+  const { decisionPromise } = await enqueueDappApproval(args)
   return await decisionPromise
 }
 
 /** Test helper — clear cooldown / inflight maps between cases. */
-export function resetDappApprovalSessionForTests(): void {
+export async function resetDappApprovalSessionForTests(): Promise<void> {
   pendingDappResolvers.clear()
   inflightApprovals.clear()
   grantAccessSuppressedUntil.clear()
   approvalPopupWindowIds.clear()
   approvalWindowByOrigin.clear()
+  resetDappRequestStateForTests()
+  await clearAllDappRequests()
 }
 
 export function mapExternalSignResultToProviderResponse(

@@ -3,9 +3,13 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import type { BackgroundMessage, PendingDappRequest } from '@latch/types'
 
 const runExternalSignFlow = vi.fn()
-vi.mock('../externalSign/orchestrator', () => ({
-  runExternalSignFlow: (...a: unknown[]) => runExternalSignFlow(...a),
-}))
+vi.mock('../externalSign/orchestrator', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../externalSign/orchestrator')>()
+  return {
+    ...mod,
+    runExternalSignFlow: (...a: unknown[]) => runExternalSignFlow(...a),
+  }
+})
 
 import { ok } from '../messageResponse'
 import type { RuntimeSender } from '../messageSource'
@@ -15,6 +19,7 @@ import {
   isDappOriginDisconnected,
   listPendingDappRequests,
   setDappPermissions,
+  upsertAccount,
 } from '../storage'
 import {
   openApprovalPopup,
@@ -23,6 +28,7 @@ import {
   waitForExternalSignDecision,
 } from './approvalSession'
 import { tryHandleDappMessage } from './handlers'
+import { getDappRequest, listLiveDappRequests } from './requestState'
 
 const SITE_A = 'https://a.example'
 const SITE_B = 'https://b.example'
@@ -60,12 +66,12 @@ function pageSessionStart(origin: string) {
 }
 
 function pendingRow(origin: string, id: string): PendingDappRequest {
-  return { id, origin, kind: 'getPublicKey', createdAt: 0 }
+  return { id, origin, kind: 'getPublicKey', createdAt: Date.now(), status: 'awaiting_user' }
 }
 
 describe('DAPP_DISCONNECT', () => {
-  beforeEach(() => {
-    resetDappApprovalSessionForTests()
+  beforeEach(async () => {
+    await resetDappApprovalSessionForTests()
     runExternalSignFlow.mockReset()
   })
 
@@ -166,22 +172,21 @@ describe('DAPP_DISCONNECT', () => {
     expect(sendResponse).toHaveBeenCalledWith({ ok: true, data: undefined })
     expect(await isDappOriginDisconnected(SITE_A)).toBe(false)
 
-    // Without permissions, getPublicKey should now be allowed to open approval
-    // (we only assert it does not fail closed on the sticky flag).
     vi.spyOn(chrome.action, 'openPopup').mockResolvedValue(undefined as never)
     const getKey = {
       type: 'DAPP_GET_PUBLIC_KEY',
       payload: { origin: SITE_A },
     } as unknown as BackgroundMessage
 
-    // Starts approval (hangs until resolved) — prove it was not rejected as not_connected.
-    const approvalPromise = tryHandleDappMessage(getKey, vi.fn(), ok, pageSender(SITE_A))
-    await vi.waitFor(() => {
-      expect(pendingDappResolvers.size).toBe(1)
+    const enqueueResponse = vi.fn()
+    expect(await tryHandleDappMessage(getKey, enqueueResponse, ok, pageSender(SITE_A))).toBe(true)
+    expect(enqueueResponse).toHaveBeenCalledWith({
+      ok: true,
+      data: expect.objectContaining({
+        requestId: expect.any(String),
+        status: 'awaiting_user',
+      }),
     })
-    const requestId = [...pendingDappResolvers.keys()][0]!
-    pendingDappResolvers.get(requestId)?.({ approved: false, errorCode: 'user_rejected' })
-    await expect(approvalPromise).rejects.toThrow(/rejected/i)
   })
 
   it('closes the durable approval window when a pending request is resolved', async () => {
@@ -224,12 +229,11 @@ describe('DAPP_DISCONNECT', () => {
     expect(await getDappPermissions(SITE_A)).toEqual(['getPublicKey'])
   })
 
-  it('passes senderUrl into provider sign flow', async () => {
+  it('passes senderUrl into provider sign flow and returns pending ack', async () => {
     await setDappPermissions(SITE_A, ['getPublicKey'])
     runExternalSignFlow.mockResolvedValue({
-      status: 'signed',
-      signedXdr: 'SIGNED',
-      network: 'testnet',
+      pending: true,
+      requestId: 'sign-req-1',
     })
 
     const sendResponse = vi.fn()
@@ -250,9 +254,14 @@ describe('DAPP_DISCONNECT', () => {
       expect.objectContaining({
         source: 'provider',
         senderUrl: `${SITE_A}/`,
+        awaitDecision: false,
         request: expect.objectContaining({ origin: SITE_A }),
       })
     )
+    expect(sendResponse).toHaveBeenCalledWith({
+      ok: true,
+      data: { requestId: 'sign-req-1', status: 'awaiting_user' },
+    })
   })
 
   it('rejects malformed signTransaction before runExternalSignFlow', async () => {
@@ -297,5 +306,145 @@ describe('DAPP_DISCONNECT', () => {
       data: { origin: SITE_B, allowed: ['getPublicKey'] },
     })
     expect(await getDappPermissions(SITE_B)).toEqual(['getPublicKey'])
+  })
+})
+
+describe('restart-safe dApp request state machine', () => {
+  beforeEach(async () => {
+    await resetDappApprovalSessionForTests()
+    runExternalSignFlow.mockReset()
+    await upsertAccount({
+      id: 'acc-1',
+      label: 'Test',
+      mode: 'passkey',
+      smartAccountAddress: SMART,
+      createdAt: Date.now(),
+    })
+  })
+
+  it('LIST keeps awaiting rows after in-memory resolvers are wiped (SW reinit)', async () => {
+    await addPendingDappRequest(pendingRow(SITE_A, 'req-live'))
+    pendingDappResolvers.clear()
+
+    const sendResponse = vi.fn()
+    await tryHandleDappMessage(
+      { type: 'LIST_PENDING_DAPP_REQUESTS', payload: {} } as BackgroundMessage,
+      sendResponse,
+      ok
+    )
+
+    expect(sendResponse).toHaveBeenCalledWith({
+      ok: true,
+      data: { requests: [expect.objectContaining({ id: 'req-live', status: 'awaiting_user' })] },
+    })
+    expect(await listLiveDappRequests()).toHaveLength(1)
+  })
+
+  it('resolve after SW reinit is pollable and idempotent', async () => {
+    await addPendingDappRequest(pendingRow(SITE_A, 'req-poll'))
+    // Simulate service-worker restart: drop in-memory waiters only.
+    pendingDappResolvers.clear()
+
+    const resolveOnce = vi.fn()
+    await tryHandleDappMessage(
+      {
+        type: 'RESOLVE_PENDING_DAPP_REQUEST',
+        payload: { requestId: 'req-poll', approved: true },
+      } as BackgroundMessage,
+      resolveOnce,
+      ok
+    )
+    expect(resolveOnce).toHaveBeenCalledWith({ ok: true, data: undefined })
+
+    const resolveTwice = vi.fn()
+    await tryHandleDappMessage(
+      {
+        type: 'RESOLVE_PENDING_DAPP_REQUEST',
+        payload: { requestId: 'req-poll', approved: true },
+      } as BackgroundMessage,
+      resolveTwice,
+      ok
+    )
+    expect(resolveTwice).toHaveBeenCalledWith({ ok: true, data: undefined })
+
+    const stored = await getDappRequest('req-poll')
+    expect(stored?.status).toBe('approved')
+
+    const poll = vi.fn()
+    await tryHandleDappMessage(
+      {
+        type: 'DAPP_POLL_REQUEST_RESULT',
+        payload: { requestId: 'req-poll', origin: SITE_A },
+      } as BackgroundMessage,
+      poll,
+      ok,
+      pageSender(SITE_A)
+    )
+    expect(poll).toHaveBeenCalledWith({
+      ok: true,
+      data: { status: 'approved', publicKey: SMART },
+    })
+    expect(await getDappPermissions(SITE_A)).toEqual(['getPublicKey'])
+  })
+
+  it('rejects cross-origin poll of another site requestId', async () => {
+    await addPendingDappRequest(pendingRow(SITE_A, 'req-secret'))
+
+    await expect(
+      tryHandleDappMessage(
+        {
+          type: 'DAPP_POLL_REQUEST_RESULT',
+          payload: { requestId: 'req-secret', origin: SITE_B },
+        } as BackgroundMessage,
+        vi.fn(),
+        ok,
+        pageSender(SITE_B)
+      )
+    ).rejects.toThrow(/unknown request/i)
+  })
+
+  it('expires stale awaiting requests out of LIST and on poll', async () => {
+    vi.useFakeTimers()
+    const now = Date.now()
+    vi.setSystemTime(now)
+
+    await addPendingDappRequest({
+      id: 'req-old',
+      origin: SITE_A,
+      kind: 'getPublicKey',
+      createdAt: now,
+      status: 'awaiting_user',
+      updatedAt: now,
+    })
+
+    vi.setSystemTime(now + 6 * 60 * 1000)
+
+    const listRes = vi.fn()
+    await tryHandleDappMessage(
+      { type: 'LIST_PENDING_DAPP_REQUESTS', payload: {} } as BackgroundMessage,
+      listRes,
+      ok
+    )
+    expect(listRes).toHaveBeenCalledWith({ ok: true, data: { requests: [] } })
+
+    const poll = vi.fn()
+    await tryHandleDappMessage(
+      {
+        type: 'DAPP_POLL_REQUEST_RESULT',
+        payload: { requestId: 'req-old', origin: SITE_A },
+      } as BackgroundMessage,
+      poll,
+      ok,
+      pageSender(SITE_A)
+    )
+    expect(poll).toHaveBeenCalledWith({
+      ok: true,
+      data: {
+        status: 'expired',
+        error: { message: 'Request expired', code: 'expired' },
+      },
+    })
+
+    vi.useRealTimers()
   })
 })

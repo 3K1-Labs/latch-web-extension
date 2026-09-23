@@ -11,6 +11,7 @@ import type {
   DappDisconnectRequest,
   DappOpenSignRequestPayload,
   DappPageSessionStartRequest,
+  DappPollRequestResultRequest,
   DappSignTransactionRequest,
   ExternalSignRequest,
   GetDappPermissionsRequest,
@@ -202,6 +203,16 @@ export function parseOriginOnlyPayload(payload: unknown): GetDappPermissionsRequ
   return { origin: parseRequiredOrigin(obj) }
 }
 
+export function parseDappPollRequestResultPayload(payload: unknown): DappPollRequestResultRequest {
+  assertPayloadSize(payload)
+  const obj = assertPlainObject(payload, 'Payload')
+  assertExactKeys(obj, ['origin', 'requestId'], 'Payload')
+  return {
+    origin: parseRequiredOrigin(obj),
+    requestId: parseToken(obj.requestId, 'requestId'),
+  }
+}
+
 export function parseSignTransactionRequest(value: unknown): SignTransactionRequest {
   const obj = assertPlainObject(value, 'request')
   assertExactKeys(obj, ['xdr', 'network', 'accountToSign', 'submit'], 'request')
@@ -311,6 +322,7 @@ export type ParsedPublicDappPayload =
   | DappPageSessionStartRequest
   | DappSignTransactionRequest
   | DappOpenSignRequestPayload
+  | DappPollRequestResultRequest
 
 /**
  * Parse a content-script-allowed message payload. Throws PublicDappPayloadError
@@ -332,6 +344,8 @@ export function parsePublicDappPayload(
       return parseDappSignTransactionPayload(payload)
     case 'DAPP_OPEN_SIGN_REQUEST':
       return parseDappOpenSignRequestPayload(payload)
+    case 'DAPP_POLL_REQUEST_RESULT':
+      return parseDappPollRequestResultPayload(payload)
     default:
       fail(`Unsupported public dapp message type: ${String(type)}`)
   }

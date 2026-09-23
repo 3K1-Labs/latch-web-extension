@@ -12,6 +12,12 @@ import type {
 
 import { clearAllMnemonicVaultRecords, removeMnemonicVaultForAccount } from './mnemonicVault'
 import { getActiveNetwork } from './network/config'
+import {
+  clearAllDappRequests,
+  listLiveDappRequests,
+  removeDappRequest,
+  upsertDappRequest,
+} from './dapp/requestState'
 
 const STORAGE_KEYS = {
   /** Legacy flat setup; migrated into setupStateByNetwork.testnet */
@@ -755,29 +761,25 @@ export async function clearDappPermissions(origin: string): Promise<void> {
 }
 
 export async function listPendingDappRequests(): Promise<PendingDappRequest[]> {
-  const res = await chrome.storage.local.get([STORAGE_KEYS.pendingDappRequests])
-  return (res[STORAGE_KEYS.pendingDappRequests] as PendingDappRequest[] | undefined) ?? []
+  return listLiveDappRequests()
 }
 
 export async function addPendingDappRequest(req: PendingDappRequest) {
-  const current = await listPendingDappRequests()
-  await chrome.storage.local.set({ [STORAGE_KEYS.pendingDappRequests]: [...current, req] })
+  await upsertDappRequest(req, req.status ?? 'awaiting_user')
 }
 
 export async function removePendingDappRequest(requestId: string) {
-  const current = await listPendingDappRequests()
-  await chrome.storage.local.set({
-    [STORAGE_KEYS.pendingDappRequests]: current.filter((r) => r.id !== requestId),
-  })
+  await removeDappRequest(requestId)
 }
 
-/** Drop durable queue entries that cannot complete (e.g. SW restarted). */
+/** Drop session-backed dApp approval queue (and legacy local key). */
 export async function clearPendingDappRequests() {
-  await chrome.storage.local.remove([STORAGE_KEYS.pendingDappRequests])
+  await clearAllDappRequests()
 }
 
 export async function clearSession() {
   await clearAllMnemonicVaultRecords()
+  await clearAllDappRequests()
   await chrome.storage.local.remove([
     STORAGE_KEYS.accounts,
     STORAGE_KEYS.activeAccountId,
