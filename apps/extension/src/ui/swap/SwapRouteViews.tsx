@@ -16,7 +16,7 @@ import { SwapScreen, swapWalletLabel } from '../screens/SwapScreen'
 import { ConfirmSwapScreen } from '../screens/ConfirmSwapScreen'
 import { SwapFailureScreen } from '../screens/swap/SwapFailureScreen'
 import { SwapSuccessScreen } from '../screens/swap/SwapSuccessScreen'
-import { friendlyError, sendToBackground } from '../lib/backgroundClient'
+import { friendlyError, logLatchError, sendToBackground } from '../lib/backgroundClient'
 import {
   clearPendingWalletOutcome,
   consumePendingWalletOutcomeIf,
@@ -279,7 +279,7 @@ export function SwapRouteViews({
         providerId: swapQuote.quotePayload.providerId,
       },
     })
-    if (!res.ok || !res.data) throw new Error(friendlyError(res.error))
+    if (!res.ok || !res.data) throw new Error(friendlyError(res.error) || 'Swap failed.')
 
     const payUsd = swapTokenPriceUsdBySymbol[payToken.symbol.toUpperCase()]
     const receiveUsd = swapTokenPriceUsdBySymbol[receiveToken.symbol.toUpperCase()]
@@ -352,7 +352,7 @@ export function SwapRouteViews({
           outcomePayload,
         },
       })
-      if (!res.ok) throw new Error(friendlyError(res.error))
+      if (!res.ok) throw new Error(friendlyError(res.error) || 'Swap failed.')
 
       const prepared = res.data!.prepared
       if (prepared.estimatedFeeXlm || prepared.feeLabel) {
@@ -389,7 +389,9 @@ export function SwapRouteViews({
           status: 'failure',
           error: e instanceof Error ? e.message : String(e),
           payload: { draft: swapDraft, quote: swapQuote },
-        }).catch(() => {})
+        }).catch((err) => {
+          logLatchError('swap:pending-outcome', err)
+        })
       }
     } finally {
       setSwapBusy(false)

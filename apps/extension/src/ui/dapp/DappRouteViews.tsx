@@ -9,7 +9,7 @@ import type {
 
 import { GrantAccessScreen } from '../screens/dapp/GrantAccessScreen'
 import { ExternalSignReviewScreen } from '../screens/dapp/ExternalSignReviewScreen'
-import { friendlyError, sendToBackground } from '../lib/backgroundClient'
+import { friendlyError, logLatchError, sendToBackground } from '../lib/backgroundClient'
 import { clearPendingWalletOutcome, writePendingWalletOutcome } from '../../lib/walletOutcome'
 import { openOnboardingTab } from '../onboarding/openOnboardingTab'
 import type { Route, Surface } from '../routing/routes'
@@ -106,13 +106,19 @@ export function DappRouteViews({
       onSetRoute(accountsLength > 0 ? 'home' : 'home')
       if (accountsLength === 0) {
         onResetOnboardingTabOpened()
-        void openOnboardingTab().catch(() => {})
+        // Setup screen follows; tab open is best-effort.
+        void openOnboardingTab().catch((e) => {
+          logLatchError('dapp:open-onboarding', e)
+        })
       }
     }
   }
 
   useEffect(() => {
-    void loadPendingDapp().catch(() => {})
+    // Prefetch pending list — do not toast on every popup open.
+    void loadPendingDapp().catch((e) => {
+      logLatchError('dapp:list-pending', e)
+    })
     // Mount-only, matches LatchRoot.
   }, [])
 
@@ -120,7 +126,9 @@ export function DappRouteViews({
     function onStorage(changes: { [key: string]: chrome.storage.StorageChange }, area: string) {
       if (area !== 'session') return
       if (changes['latch.dappRequests']) {
-        void loadPendingDapp().catch(() => {})
+        void loadPendingDapp().catch((e) => {
+          logLatchError('dapp:list-pending', e)
+        })
       }
     }
     chrome.storage.onChanged.addListener(onStorage)
@@ -183,7 +191,7 @@ export function DappRouteViews({
           surface,
         },
       })
-      if (!res.ok) throw new Error(friendlyError(res.error))
+      if (!res.ok) throw new Error(friendlyError(res.error) || 'Signing failed.')
 
       setDappBusy(false)
       setDappProgressLabel(null)
@@ -204,7 +212,9 @@ export function DappRouteViews({
           kind: 'dapp',
           status: 'failure',
           error: message,
-        }).catch(() => {})
+        }).catch((err) => {
+          logLatchError('dapp:pending-outcome', err)
+        })
       }
     }
   }

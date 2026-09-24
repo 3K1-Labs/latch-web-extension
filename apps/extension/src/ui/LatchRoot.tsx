@@ -39,7 +39,7 @@ import { ReceiveFlow } from './screens/receive/ReceiveFlow'
 import { FundScreen } from './screens/fund/FundScreen'
 import { buildTransactionDetail } from './lib/historyFormat'
 import type { TransactionDetailVm } from './types/transaction-detail'
-import { friendlyError, sendToBackground } from './lib/backgroundClient'
+import { friendlyError, logLatchError, sendToBackground } from './lib/backgroundClient'
 import { closeWalletSurface, openSidePanel, setDefaultSurface } from './lib/uiSurface'
 import {
   MULTISIG_ROUTES,
@@ -169,9 +169,12 @@ export function LatchRoot({ surface }: { surface: Surface }) {
   }, [route, activeAccount?.id])
 
   useEffect(() => {
+    // Missed dismiss list is non-critical — banner may reappear until next successful read.
     void apiGetMultisigProposalsBannerDismissed()
       .then(setMultisigBannerDismissedIds)
-      .catch(() => {})
+      .catch((e) => {
+        logLatchError('multisig:banner-dismissed', e)
+      })
   }, [])
 
   const loadMultisigProposals = useCallback(async () => {
@@ -359,7 +362,10 @@ export function LatchRoot({ surface }: { surface: Surface }) {
                       })
                     )
                   })
-                  .catch(() => {})
+                  .catch((e) => {
+                    logLatchError('account:switch', e)
+                    setError('Could not switch account.')
+                  })
               }}
               onAddAccount={() => setRoute('addAccount')}
               onRenameAccount={(accountId) => {
@@ -422,7 +428,10 @@ export function LatchRoot({ surface }: { surface: Surface }) {
                 flowHeightClass={flowHeightClass}
                 onOpenSetupTab={() => {
                   onboardingTabOpenedRef.current = true
-                  void openOnboardingTab().catch(() => {})
+                  // Setup screen is already visible; tab open is best-effort.
+                  void openOnboardingTab().catch((e) => {
+                    logLatchError('onboarding:open-tab', e)
+                  })
                 }}
               />
             ) : null}
@@ -451,7 +460,10 @@ export function LatchRoot({ surface }: { surface: Surface }) {
                     void sendToBackground<SetActiveAccountRequest, undefined>({
                       type: 'SET_ACTIVE_ACCOUNT',
                       payload: { accountId: id },
-                    }).catch(() => {})
+                    }).catch((e) => {
+                      logLatchError('account:set-active', e)
+                      setError('Could not switch account.')
+                    })
                   }}
                 />
               </div>
@@ -555,7 +567,10 @@ export function LatchRoot({ surface }: { surface: Surface }) {
                           const next = enabled ? 'sidepanel' : 'popup'
                           setPref(next)
                           void setDefaultSurface(next).then(() => {
-                            if (next === 'sidepanel') void openSidePanel().catch(() => {})
+                            if (next === 'sidepanel')
+                              void openSidePanel().catch((e) => {
+                                logLatchError('ui:open-sidepanel', e)
+                              })
                           })
                         }}
                         onSaveAccountName={(walletName) => {
@@ -568,7 +583,10 @@ export function LatchRoot({ surface }: { surface: Surface }) {
                             },
                           })
                             .then(() => refreshAccounts())
-                            .catch(() => {})
+                            .catch((e) => {
+                              logLatchError('account:rename', e)
+                              setError('Could not rename account.')
+                            })
                         }}
                         onSelectAccount={(accountId) => {
                           void sendToBackground<SetActiveAccountRequest, undefined>({
@@ -576,10 +594,16 @@ export function LatchRoot({ surface }: { surface: Surface }) {
                             payload: { accountId },
                           })
                             .then(() => refreshAccounts())
-                            .catch(() => {})
+                            .catch((e) => {
+                              logLatchError('account:switch', e)
+                              setError('Could not switch account.')
+                            })
                         }}
                         onAccountsChanged={() => {
-                          void refreshAccounts().catch(() => {})
+                          void refreshAccounts().catch((e) => {
+                            logLatchError('account:refresh', e)
+                            setError('Could not refresh accounts.')
+                          })
                         }}
                         onCreateMultisig={() => {
                           setPage('main')
@@ -831,7 +855,10 @@ export function LatchRoot({ surface }: { surface: Surface }) {
               })
                 .then(() => refreshAccounts())
                 .then(() => setRenameAccountId(null))
-                .catch(() => {})
+                .catch((e) => {
+                  logLatchError('account:rename', e)
+                  setError('Could not rename account.')
+                })
             }}
           />
         ) : null}

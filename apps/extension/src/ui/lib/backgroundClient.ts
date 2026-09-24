@@ -69,5 +69,12 @@ export function friendlyError(e?: SerializableError): string {
       '(funding relayer, Soroban RPC, or deploy funding on Render). Try again shortly.'
     )
   }
-  return e.message
+  const message = typeof e.message === 'string' ? e.message.trim() : ''
+  return message || 'Something went wrong. Please try again.'
+}
+
+/** Structured console error for paths that must not toast on every prefetch miss. */
+export function logLatchError(scope: string, error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error)
+  console.error(`[latch:${scope}]`, message || error)
 }

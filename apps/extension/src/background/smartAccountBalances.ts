@@ -201,7 +201,10 @@ function revalidateInBackground(accountId: string): void {
     })
 
   inflightByAccountId.set(accountId, p)
-  void p.catch(() => {})
+  // Background revalidate must not reject unhandled; UI already has cached balances.
+  void p.catch((e) => {
+    console.error('[latch:balances] revalidate', e)
+  })
 }
 
 export async function runGetSmartAccountBalances(
