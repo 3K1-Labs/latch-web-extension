@@ -59,17 +59,28 @@ function onProviderRequest(
   })
 }
 
+/** Permanent event listener installed by installLatch (not request-scoped). */
+function requestListenerDelta(win: FakePageWindow, baseline: number): number {
+  return win.messageListenerCount() - baseline
+}
+
 describe('inpage window.latch', () => {
   let win: FakePageWindow
+  let sendToBackground: typeof import('./inpage').sendToBackground
+  let baselineListeners: number
 
   beforeEach(async () => {
     win = installFakePageWindow(ORIGIN)
     vi.resetModules()
-    await import('./inpage')
+    const mod = await import('./inpage')
+    sendToBackground = mod.sendToBackground
+    // installLatch adds one permanent LATCH_PROVIDER_EVENT listener.
+    baselineListeners = win.messageListenerCount()
   })
 
   afterEach(() => {
     vi.useRealTimers()
+    vi.restoreAllMocks()
   })
 
   it('isConnected returns true when ping succeeds', async () => {
@@ -78,8 +89,10 @@ describe('inpage window.latch', () => {
       expect(req.payload).toEqual({})
       return { ok: true, data: { ok: true } }
     })
+    const afterHandlers = win.messageListenerCount()
 
     await expect(latchOf(win).isConnected()).resolves.toBe(true)
+    expect(requestListenerDelta(win, afterHandlers)).toBe(0)
   })
 
   it('isConnected returns false when ping fails', async () => {
@@ -87,15 +100,157 @@ describe('inpage window.latch', () => {
       ok: false,
       error: { message: 'unreachable', code: 'extension_unreachable' },
     }))
+    const afterHandlers = win.messageListenerCount()
 
     await expect(latchOf(win).isConnected()).resolves.toBe(false)
+    expect(requestListenerDelta(win, afterHandlers)).toBe(0)
   })
 
   it('isConnected returns false when ping times out', async () => {
     vi.useFakeTimers()
+    const setTimeoutSpy = vi.spyOn(win, 'setTimeout')
     const pending = latchOf(win).isConnected()
     await vi.advanceTimersByTimeAsync(2000)
     await expect(pending).resolves.toBe(false)
+
+    const timeoutDelays = setTimeoutSpy.mock.calls.map((call) => call[1])
+    expect(timeoutDelays).toContain(2000)
+    expect(timeoutDelays).not.toContain(120_000)
+    expect(requestListenerDelta(win, baselineListeners)).toBe(0)
+
+    // Late response after timeout must be ignored (no leftover listener).
+    const beforeLate = win.messageListenerCount()
+    win.postMessage(
+      {
+        source: 'LATCH_PROVIDER_RESPONSE',
+        messageId: 1,
+        ok: true,
+        data: { ok: true },
+      },
+      ORIGIN
+    )
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(win.messageListenerCount()).toBe(beforeLate)
+  })
+
+  it('ping success clears the request timer and ignores a duplicate response', async () => {
+    const clearTimeoutSpy = vi.spyOn(win, 'clearTimeout')
+    let postedId: number | undefined
+    onProviderRequest(win, (req) => {
+      postedId = req.messageId
+      return { ok: true, data: { ok: true } }
+    })
+    const afterHandlers = win.messageListenerCount()
+
+    await expect(latchOf(win).isConnected()).resolves.toBe(true)
+    expect(clearTimeoutSpy).toHaveBeenCalled()
+    expect(requestListenerDelta(win, afterHandlers)).toBe(0)
+
+    // Duplicate response after settle must not throw or re-add listeners.
+    win.postMessage(
+      {
+        source: 'LATCH_PROVIDER_RESPONSE',
+        messageId: postedId,
+        ok: true,
+        data: { ok: true },
+      },
+      ORIGIN
+    )
+    expect(requestListenerDelta(win, afterHandlers)).toBe(0)
+  })
+
+  it('background error removes the request listener and clears the timer', async () => {
+    const clearTimeoutSpy = vi.spyOn(win, 'clearTimeout')
+    onProviderRequest(win, () => ({
+      ok: false,
+      error: { message: 'unreachable', code: 'extension_unreachable' },
+    }))
+    const afterHandlers = win.messageListenerCount()
+
+    await expect(sendToBackground('ping', {}, { timeoutMs: 2_000 })).rejects.toMatchObject({
+      name: 'LatchProviderError',
+      code: 'extension_unreachable',
+    })
+    expect(clearTimeoutSpy).toHaveBeenCalled()
+    expect(requestListenerDelta(win, afterHandlers)).toBe(0)
+  })
+
+  it('abort cancels an in-flight request and cleans up once', async () => {
+    vi.useFakeTimers()
+    const clearTimeoutSpy = vi.spyOn(win, 'clearTimeout')
+    const controller = new AbortController()
+    const pending = sendToBackground('ping', {}, { timeoutMs: 2_000, signal: controller.signal })
+
+    expect(requestListenerDelta(win, baselineListeners)).toBe(1)
+    controller.abort()
+
+    await expect(pending).rejects.toMatchObject({
+      name: 'LatchProviderError',
+      code: 'cancelled',
+      message: 'Latch request cancelled',
+    })
+    expect(clearTimeoutSpy).toHaveBeenCalled()
+    expect(requestListenerDelta(win, baselineListeners)).toBe(0)
+
+    // Following timeout or late message must not reject again / re-attach.
+    await vi.advanceTimersByTimeAsync(2_000)
+    win.postMessage(
+      {
+        source: 'LATCH_PROVIDER_RESPONSE',
+        messageId: 99,
+        ok: true,
+        data: { ok: true },
+      },
+      ORIGIN
+    )
+    expect(requestListenerDelta(win, baselineListeners)).toBe(0)
+  })
+
+  it('pre-aborted signal rejects without posting a request', async () => {
+    const postedBefore = win.__posted.length
+    const controller = new AbortController()
+    controller.abort()
+
+    await expect(
+      sendToBackground('ping', {}, { timeoutMs: 2_000, signal: controller.signal })
+    ).rejects.toMatchObject({
+      name: 'LatchProviderError',
+      code: 'cancelled',
+    })
+    expect(win.__posted.length).toBe(postedBefore)
+    expect(requestListenerDelta(win, baselineListeners)).toBe(0)
+  })
+
+  it('getPublicKey still uses a 120s timeout and cleans up on timeout', async () => {
+    vi.useFakeTimers()
+    const setTimeoutSpy = vi.spyOn(win, 'setTimeout')
+    const pending = latchOf(win).getPublicKey()
+
+    await vi.advanceTimersByTimeAsync(2_000)
+    // Still pending after the short ping window.
+    let settled = false
+    void pending.then(
+      () => {
+        settled = true
+      },
+      () => {
+        settled = true
+      }
+    )
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    expect(requestListenerDelta(win, baselineListeners)).toBe(1)
+
+    const timeoutDelays = setTimeoutSpy.mock.calls.map((call) => call[1])
+    expect(timeoutDelays).toContain(120_000)
+
+    await vi.advanceTimersByTimeAsync(118_000)
+    await expect(pending).rejects.toMatchObject({
+      name: 'LatchProviderError',
+      code: 'timeout',
+      message: 'Latch extension timeout',
+    })
+    expect(requestListenerDelta(win, baselineListeners)).toBe(0)
   })
 
   it('getPublicKey posts origin-scoped request and returns publicKey', async () => {

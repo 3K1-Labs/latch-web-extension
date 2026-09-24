@@ -24,6 +24,8 @@ export type FakePageWindow = {
   __posted: Array<{ data: unknown; targetOrigin?: string }>
   /** Script nodes prepended by provider-bridge injection. */
   __prependedScripts: Array<{ src?: string; async?: boolean }>
+  /** Active `message` listeners (for cleanup assertions). */
+  messageListenerCount: () => number
 }
 
 function toListener(listener: EventListenerOrEventListenerObject): MessageListener {
@@ -41,6 +43,9 @@ export function createFakePageWindow(origin = 'https://dapp.example'): FakePageW
     location: { origin },
     __posted: posted,
     __prependedScripts: prependedScripts,
+    messageListenerCount() {
+      return messageListeners.size
+    },
     addEventListener(type, listener) {
       if (type !== 'message') return
       messageListeners.add(toListener(listener))
