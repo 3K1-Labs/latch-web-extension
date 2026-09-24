@@ -93,7 +93,11 @@ wrapper in bundled dApps.
 **Latch-native (stable):**
 
 - `getPublicKey()` → smart-account `C…` string
-- `signTransaction({ xdr, network, accountToSign, submit? })`
+- `signTransaction({ xdr, network, accountToSign, submit? })` → waits for the user and
+  resolves with `txHash` (when `submit: true`) or signed XDR
+- `openSignRequest({ network, account, callback, requestId, xdr? | payloadRef?, submit? })` →
+  opens the extension sign-request tab and later delivers the result to `callback`
+  (promise resolves once the tab is open; does not return the signed payload to the page)
 - `getNetwork()` → `'testnet' | 'mainnet'`
 - `disconnect()` → revokes this origin's access; the next `getPublicKey()` / `getAddress()`
   re-prompts GrantAccess. Accounts and other origins are untouched, and no event is emitted,
@@ -109,8 +113,11 @@ wrapper in bundled dApps.
 
 - Latch addresses are Soroban smart-account **`C…`**, not classic **`G…`**. Pass the same
   `C…` as `opts.address` when using the SEP-shaped sign API.
+- Prefer `signTransaction` when the dApp can await a promise on the page. Use
+  `openSignRequest` for redirect / callback flows (Layer-2 style).
 - SEP-shaped sign is sign-only in v1; the dApp submits `signedTxXdr`. `submit: true` and
-  `submitUrl` return SEP error code `-3`.
+  `submitUrl` return SEP error code `-3`. Latch-native `signTransaction` and
+  `openSignRequest` may set `submit: true` so Latch broadcasts.
 - SEP methods throw errors with numeric `code` (`-1`…`-4`); Latch-native methods use string
   codes.
 

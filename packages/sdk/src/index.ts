@@ -20,6 +20,8 @@ import type {
   SignTransactionResponse,
 } from '@latch/types'
 
+import type { LatchPublicMethod } from './publicSurface'
+
 export type LatchAccountChangedPayload = {
   publicKey: string
   network: Network
@@ -146,6 +148,19 @@ export function getLatchSDK(): LatchSDK {
 
 export default getLatchSDK
 
+/** Compile-time: LatchSDK / Window['latch'] keys must equal LATCH_PUBLIC_METHODS. */
+type ExpectEqual<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false
+
+const _assertPublicSurface: {
+  sdk: ExpectEqual<keyof LatchSDK, LatchPublicMethod>
+  windowLatch: ExpectEqual<keyof NonNullable<Window['latch']>, LatchPublicMethod>
+} = { sdk: true, windowLatch: true }
+void _assertPublicSurface
+
+export { LATCH_PUBLIC_METHODS } from './publicSurface'
+export type { LatchPublicMethod } from './publicSurface'
+
 export {
   LatchModule,
   LATCH_MODULE_ICON,
@@ -155,6 +170,7 @@ export {
 export type { StellarWalletsKitModule, WalletKitNetworkOptions } from './stellar-wallets-kit'
 
 export type {
+  OpenSignRequestParams,
   Sep0043GetAddressResponse,
   Sep0043GetNetworkResponse,
   Sep0043SignTransactionOptions,
