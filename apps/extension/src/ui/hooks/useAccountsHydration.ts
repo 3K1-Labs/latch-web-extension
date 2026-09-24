@@ -15,7 +15,7 @@ import type {
   StoredAccount,
 } from '@latch/types'
 
-import { sendToBackground } from '../lib/backgroundClient'
+import { logLatchError, sendToBackground } from '../lib/backgroundClient'
 import { apiSyncLocalMultisigAccounts } from '../lib/multisigFlow'
 import { openOnboardingTab } from '../onboarding/openOnboardingTab'
 import { storedAccountLabel } from '../lib/storedAccountLabel'
@@ -39,6 +39,8 @@ export function useAccountsHydration({
   /** True only after GET_ACCOUNTS returned successfully (empty or not). False on timeout/error — never treat that as "needs setup". */
   const [accountsLoadSucceeded, setAccountsLoadSucceeded] = useState(false)
   const onboardingTabOpenedRef = useRef(false)
+  /** Log hydrate retries once per failure streak so the 2.5s interval does not spam. */
+  const accountsRetryLoggedRef = useRef(false)
   const [accounts, setAccounts] = useState<StoredAccount[]>([])
   const [activeAccountId, setActiveAccountId] = useState<string | undefined>(undefined)
   const [activeNetwork, setActiveNetwork] = useState<'testnet' | 'mainnet'>('testnet')
@@ -74,7 +76,9 @@ export function useAccountsHydration({
       .then((res) => {
         if (res.ok && res.data) setSetupState(res.data.setupState)
       })
-      .catch(() => {})
+      .catch((e) => {
+        logLatchError('hydrate:setup-state', e)
+      })
 
     let cancelled = false
     void (async () => {
@@ -113,8 +117,11 @@ export function useAccountsHydration({
                   })
           )
         }
-      } catch {
-        if (!cancelled) setAccountsLoadSucceeded(false)
+      } catch (e) {
+        if (!cancelled) {
+          setAccountsLoadSucceeded(false)
+          logLatchError('hydrate:accounts', e)
+        }
       } finally {
         if (!cancelled) setAccountsHydrated(true)
       }
@@ -135,8 +142,9 @@ export function useAccountsHydration({
               (netRes.data.network === 'mainnet' ? 'Stellar Mainnet' : 'Stellar Testnet')
           )
         }
-      } catch {
+      } catch (e) {
         // keep defaults
+        logLatchError('hydrate:network', e)
       }
     })()
 
@@ -155,6 +163,7 @@ export function useAccountsHydration({
   // Retry GET_ACCOUNTS when the first attempt failed / timed out (keep Latch loader, never "Set up Latch").
   useEffect(() => {
     if (!accountsHydrated || accountsLoadSucceeded || accounts.length > 0) return
+    accountsRetryLoggedRef.current = false
     let cancelled = false
     const attempt = async () => {
       try {
@@ -163,6 +172,7 @@ export function useAccountsHydration({
           payload: undefined,
         })
         if (cancelled || !res.ok || !res.data) return
+        accountsRetryLoggedRef.current = false
         setAccounts(res.data.accounts)
         setActiveAccountId(res.data.activeAccountId)
         setActiveAccountHasMnemonicVault(Boolean(res.data.activeAccountHasMnemonicVault))
@@ -181,8 +191,12 @@ export function useAccountsHydration({
               : resolveMainRoute({ needsMnemonicUnlock: locked, preferred: prev })
           )
         }
-      } catch {
-        // keep retrying
+      } catch (e) {
+        // keep retrying — log once per streak so the interval does not spam
+        if (!accountsRetryLoggedRef.current) {
+          accountsRetryLoggedRef.current = true
+          logLatchError('hydrate:accounts-retry', e)
+        }
       }
     }
     void attempt()
@@ -214,7 +228,10 @@ export function useAccountsHydration({
 
     if (!onboardingTabOpenedRef.current) {
       onboardingTabOpenedRef.current = true
-      void openOnboardingTab().catch(() => {})
+      // Setup screen is already visible; tab open is best-effort.
+      void openOnboardingTab().catch((e) => {
+        logLatchError('hydrate:open-onboarding', e)
+      })
     }
   }, [accountsHydrated, accountsLoadSucceeded, accounts.length, needsMnemonicUnlock, route])
 

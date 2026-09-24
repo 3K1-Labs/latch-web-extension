@@ -15,7 +15,12 @@ import {
   iconUrlForCode,
   mapTransactionToHistoryItem,
 } from '../lib/historyFormat'
-import { cancelBackgroundRequest, sendToBackground } from '../lib/backgroundClient'
+import {
+  cancelBackgroundRequest,
+  friendlyError,
+  logLatchError,
+  sendToBackground,
+} from '../lib/backgroundClient'
 import { createRequestId, shouldApplyBackgroundResult } from '../lib/requestSession'
 import type { HistorySectionVm } from '../types/history'
 import type { Page, Route } from '../routing/routes'
@@ -134,7 +139,7 @@ export function usePortfolioAndHistory({
           return
         }
         if (!res.ok) {
-          setHistoryError(res.error?.message ?? 'Could not load transactions')
+          setHistoryError(friendlyError(res.error) || 'Could not load transactions')
           setHistorySections([])
           return
         }
@@ -142,6 +147,12 @@ export function usePortfolioAndHistory({
           mapTransactionToHistoryItem(row, iconUrlForCode(portfolioRowsRef.current, row.assetCode))
         )
         setHistorySections(groupHistoryItems(items))
+      } catch (e) {
+        if (historyRequestIdRef.current === requestId) {
+          logLatchError('history', e)
+          setHistoryError('Could not load transactions')
+          setHistorySections([])
+        }
       } finally {
         if (historyRequestIdRef.current === requestId) {
           setHistoryLoading(false)
@@ -184,12 +195,18 @@ export function usePortfolioAndHistory({
         return
       }
       if (!res.ok) {
-        setPortfolioError(res.error?.message ?? 'Could not load balances')
+        setPortfolioError(friendlyError(res.error) || 'Could not load balances')
         setPortfolioRows([])
         return
       }
       setPortfolioRows(res.data?.rows ?? [])
       setTotalBalanceUsd(res.data?.totalBalanceUsd ?? null)
+    } catch (e) {
+      if (portfolioRequestIdRef.current === requestId) {
+        logLatchError('portfolio', e)
+        setPortfolioError('Could not load balances')
+        setPortfolioRows([])
+      }
     } finally {
       if (portfolioRequestIdRef.current === requestId) {
         setPortfolioLoading(false)

@@ -78,8 +78,9 @@ async function emitActiveAccountFromStorage(): Promise<void> {
         payload: {},
       })) as BgRes<{ network: Network }>
       if (netRes?.ok && netRes.data?.network) network = netRes.data.network
-    } catch {
-      // keep testnet default
+    } catch (e) {
+      // keep testnet default — still emit accountChanged
+      console.error('[latch:provider-bridge] get-active-network', e)
     }
 
     postProviderEvent({
@@ -87,8 +88,8 @@ async function emitActiveAccountFromStorage(): Promise<void> {
       event: 'accountChanged',
       data: { publicKey, network },
     })
-  } catch {
-    // ignore
+  } catch (e) {
+    console.error('[latch:provider-bridge] emit-active-account', e)
   }
 }
 

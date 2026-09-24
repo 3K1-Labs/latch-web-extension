@@ -13,7 +13,7 @@ import { SendFlow } from '../screens/send/SendFlow'
 import { saveToAddressBook } from '../screens/send/useAddressBook'
 import { createMultisigSendProposalWithSetup } from '../lib/multisigProposal'
 import { enrichSendFailureDetail, buildSendRequestFromDraft } from '../lib/sendTx'
-import { friendlyError, sendToBackground } from '../lib/backgroundClient'
+import { friendlyError, logLatchError, sendToBackground } from '../lib/backgroundClient'
 import {
   clearPendingWalletOutcome,
   consumePendingWalletOutcomeIf,
@@ -126,7 +126,9 @@ export function SendRouteViews({
       })
       if (buildRes.ok && buildRes.data) return buildRes.data
       return null
-    } catch {
+    } catch (e) {
+      // Fee estimate is best-effort prefetch — confirm still builds the tx.
+      logLatchError('send:fee-estimate', e)
       return null
     }
   }, [activeAccount, sendDraft, sendTokenPriceUsd, activeNetwork])
@@ -220,7 +222,7 @@ export function SendRouteViews({
           outcomePayload,
         },
       })
-      if (!res.ok) throw new Error(friendlyError(res.error))
+      if (!res.ok) throw new Error(friendlyError(res.error) || 'Send failed.')
 
       const result = res.data!
       setSendResult(result)
@@ -230,7 +232,9 @@ export function SendRouteViews({
         void saveToAddressBook({
           address: sendDraft.recipientAddress,
           name: sendDraft.recipientName,
-        }).catch(() => {})
+        }).catch((e) => {
+          logLatchError('send:address-book', e)
+        })
       }
       void onLoadPortfolio()
     } catch (e) {
@@ -253,7 +257,9 @@ export function SendRouteViews({
           status: 'failure',
           error: errorMessage,
           payload: { draft: sendDraft, sendTokenPriceUsd },
-        }).catch(() => {})
+        }).catch((err) => {
+          logLatchError('send:pending-outcome', err)
+        })
       }
     } finally {
       setSendProgressLabel(null)
