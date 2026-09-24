@@ -1,9 +1,12 @@
+import { LATCH_PUBLIC_METHODS } from '@latch/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { installFakePageWindow, type FakePageWindow } from '../test/fakePageWindow'
 
 const ORIGIN = 'https://dapp.example'
 const SMART = 'CA3D5KRYM6CB7OWQ6TWYRR3Z4T7GNZLKERYNZGGA5SOAOPIFY6YQGAXE'
+/** Must match `LATCH_PROVIDER_MARK` in inpage.ts (avoid static import so resetModules works). */
+const LATCH_PROVIDER_MARK = '__latchPostMessageBridge_v1'
 
 type LatchProvider = {
   isConnected(): Promise<boolean>
@@ -15,8 +18,22 @@ type LatchProvider = {
       | string,
     opts?: { networkPassphrase?: string; address?: string; submit?: boolean }
   ): Promise<unknown>
+  openSignRequest(params: {
+    network: 'testnet' | 'mainnet'
+    account: string
+    callback: string
+    requestId: string
+    xdr?: string
+    payloadRef?: string
+    submit?: boolean
+    origin?: string
+  }): Promise<void>
+  getAddress(): Promise<{ address: string }>
+  getNetworkDetails(): Promise<unknown>
+  disconnect(): Promise<void>
   on(event: 'accountChanged' | 'networkChanged', handler: (payload: unknown) => void): void
   off(event: 'accountChanged' | 'networkChanged', handler: (payload: unknown) => void): void
+  __latchPostMessageBridge_v1?: true
 }
 
 type BridgeRequest = {
@@ -251,6 +268,46 @@ describe('inpage window.latch', () => {
       message: 'Latch extension timeout',
     })
     expect(requestListenerDelta(win, baselineListeners)).toBe(0)
+  })
+
+  it('exposes the same public methods as @latch/sdk (minus the install mark)', () => {
+    const latch = latchOf(win) as LatchProvider & Record<string, unknown>
+    const publicKeys = Object.keys(latch)
+      .filter((key) => key !== LATCH_PROVIDER_MARK)
+      .sort()
+    expect(publicKeys).toEqual([...LATCH_PUBLIC_METHODS].sort())
+    expect(latch[LATCH_PROVIDER_MARK]).toBe(true)
+  })
+
+  it('openSignRequest maps account/xdr and pins page origin when omitted', async () => {
+    onProviderRequest(win, (req) => {
+      expect(req.method).toBe('openSignRequest')
+      expect(req.payload).toEqual({
+        origin: ORIGIN,
+        request: {
+          network: 'testnet',
+          smartAccountAddress: SMART,
+          unsignedTxXdr: 'AAAAAgAAAAA=',
+          payloadRef: undefined,
+          callback: 'https://dapp.example/callback',
+          requestId: 'req-1',
+          submit: true,
+          origin: ORIGIN,
+        },
+      })
+      return { ok: true, data: undefined }
+    })
+
+    await expect(
+      latchOf(win).openSignRequest({
+        network: 'testnet',
+        account: SMART,
+        xdr: 'AAAAAgAAAAA=',
+        callback: 'https://dapp.example/callback',
+        requestId: 'req-1',
+        submit: true,
+      })
+    ).resolves.toBeUndefined()
   })
 
   it('getPublicKey posts origin-scoped request and returns publicKey', async () => {
