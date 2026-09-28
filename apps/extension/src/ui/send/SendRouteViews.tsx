@@ -159,8 +159,9 @@ export function SendRouteViews({
         })
         setSendStep('failure')
       }
+      onSetRoute('send')
     })()
-  }, [onLoadPortfolio])
+  }, [onLoadPortfolio, onSetRoute])
 
   async function handleSubmitSend() {
     setSendError(null)

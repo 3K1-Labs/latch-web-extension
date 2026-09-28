@@ -6,7 +6,8 @@ import { restoreWalletUiAfterConfirm } from './restoreWalletUi'
  *
  * Only the toolbar popup needs this: it is destroyed when a passkey ceremony
  * window takes focus, so the job outlives the surface that started it. The
- * side panel survives and reads the response directly.
+ * side panel survives and reads the response directly. Results only ever
+ * render in the popup — never in the passkey-bridge or a separate window.
  */
 export async function finishOutcome(args: {
   surface?: 'popup' | 'sidepanel'
@@ -25,6 +26,6 @@ export async function finishOutcome(args: {
   try {
     await restoreWalletUiAfterConfirm()
   } catch (e) {
-    console.warn('[latch:background] restoreWalletUiAfterConfirm failed', e)
+    console.warn('[latch:background] could not reopen popup; outcome kept for next open', e)
   }
 }

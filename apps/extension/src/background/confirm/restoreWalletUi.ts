@@ -1,30 +1,34 @@
-/** Re-open the toolbar popup, or a thin result-only window if openPopup fails. */
+/**
+ * Bring the toolbar popup back after a background confirm job, so the stored
+ * outcome renders there. Never opens a separate window: if Chrome refuses
+ * `openPopup`, the outcome waits in session storage for the next popup open.
+ */
+
+async function toolbarPopupIsOpen(): Promise<boolean> {
+  if (typeof chrome.runtime?.getContexts !== 'function') return false
+  try {
+    const contexts = await chrome.runtime.getContexts({
+      contextTypes: ['POPUP' as chrome.runtime.ContextType],
+    })
+    return contexts.length > 0
+  } catch {
+    return false
+  }
+}
+
+async function lastFocusedNormalWindowId(): Promise<number | undefined> {
+  try {
+    const win = await chrome.windows.getLastFocused({ windowTypes: ['normal'] })
+    return win?.id
+  } catch {
+    return undefined
+  }
+}
 
 export async function restoreWalletUiAfterConfirm(): Promise<void> {
-  try {
-    if (chrome.action?.openPopup) {
-      await chrome.action.openPopup()
-      return
-    }
-  } catch {
-    // Fall through to thin result window.
-  }
+  if (await toolbarPopupIsOpen()) return
+  if (typeof chrome.action?.openPopup !== 'function') return
 
-  const url = chrome.runtime.getURL('popup.html?durable=1&result=1')
-  await new Promise<void>((resolve, reject) => {
-    chrome.windows.create(
-      {
-        url,
-        type: 'popup',
-        width: 360,
-        height: 600,
-        focused: true,
-      },
-      () => {
-        const err = chrome.runtime.lastError
-        if (err) reject(new Error(err.message))
-        else resolve()
-      }
-    )
-  })
+  const windowId = await lastFocusedNormalWindowId()
+  await chrome.action.openPopup(windowId !== undefined ? { windowId } : undefined)
 }
