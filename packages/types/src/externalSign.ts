@@ -21,6 +21,8 @@ export interface PrepareSignRequest {
   unsignedTxXdr: string
   signerType?: SendSignerType
   signerG?: string
+  /** Signing passkey's key data; selects that passkey's context rule on backup-signer accounts. */
+  keyDataHex?: string
   /** Bundler public G when tx source is fee-payer; delegated entry synthesis only. */
   feePayerG?: string
 }

@@ -196,6 +196,8 @@ export interface BuildSendTxRequest {
   assetId?: string
   contractId?: string
   signerG?: string
+  /** Signing passkey's key data; selects that passkey's context rule on backup-signer accounts. */
+  keyDataHex?: string
   /** Stellar network; omit → API defaults to testnet. */
   network?: Network
 }

@@ -70,6 +70,8 @@ export interface BuildSwapTxRequest {
   smartAccountAddress: string
   signerType: SendSignerType
   signerG?: string
+  /** Signing passkey's key data; selects that passkey's context rule on backup-signer accounts. */
+  keyDataHex?: string
   routerContractId: string
   swapChainXdr: string
   tokenInContractId: string

@@ -214,6 +214,8 @@ export async function prepareExternalSignSession(args: {
       unsignedTxXdr,
       signerType,
       signerG: active.gAddress,
+      keyDataHex:
+        active.mode === 'passkey' ? active.passkeyKeyDataHex?.trim() || undefined : undefined,
     },
     unsignedTxXdr,
     network: signRequest.network,
