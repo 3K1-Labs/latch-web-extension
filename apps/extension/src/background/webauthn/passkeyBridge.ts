@@ -68,11 +68,21 @@ export async function runPasskeyBridgeAndWait(args: {
 
   return await new Promise((resolve, reject) => {
     let settled = false
+    let bridgeWindowId: number | undefined
+
+    // The bridge is ceremony-only; it must not outlive the passkey prompt.
+    const closeBridgeWindow = () => {
+      if (bridgeWindowId === undefined) return
+      const id = bridgeWindowId
+      bridgeWindowId = undefined
+      void Promise.resolve(chrome.windows.remove(id)).catch(() => {})
+    }
 
     const cleanup = () => {
       chrome.runtime.onMessage.removeListener(onMsg)
       chrome.storage.onChanged.removeListener(onStorage)
       void chrome.storage.session.remove([key, resultKey]).catch(() => {})
+      closeBridgeWindow()
     }
 
     const finish = (fn: () => void) => {
@@ -136,8 +146,12 @@ export async function runPasskeyBridgeAndWait(args: {
           height: 580,
           focused: true,
         },
-        () => {
+        (win) => {
           const wErr = chrome.runtime.lastError
+          if (!wErr && win?.id !== undefined) {
+            bridgeWindowId = win.id
+            if (settled) closeBridgeWindow()
+          }
           if (wErr) {
             finish(() =>
               reject(
