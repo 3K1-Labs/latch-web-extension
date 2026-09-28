@@ -10,7 +10,8 @@ import type {
 
 import { attachPasskeySigner } from '../api/webauthn'
 import { finishOutcome } from '../confirm/finishOutcome'
-import type { OkFn } from '../messageResponse'
+import { signerErrorMessage } from '../../ui/signers/signerErrors'
+import { type OkFn, toSerializableError } from '../messageResponse'
 import { getAccountSignerRecords, getAccounts, upsertAccountSignerRecord } from '../storage'
 import { executeAddBackupSignerInBackground } from './addBackupSigner'
 import { executeRemoveAccountSignerInBackground } from './removeAccountSigner'
@@ -110,7 +111,7 @@ export async function tryHandleSignersMessage(
           surface: req.surface,
           kind: 'accountSigners',
           status: 'failure',
-          error: e instanceof Error ? e.message : String(e),
+          error: signerErrorMessage(toSerializableError(e), 'Could not add this passkey.'),
         })
         throw e
       }
@@ -129,7 +130,7 @@ export async function tryHandleSignersMessage(
           surface: req.surface,
           kind: 'accountSigners',
           status: 'failure',
-          error: e instanceof Error ? e.message : String(e),
+          error: signerErrorMessage(toSerializableError(e), 'Could not remove this passkey.'),
         })
         throw e
       }

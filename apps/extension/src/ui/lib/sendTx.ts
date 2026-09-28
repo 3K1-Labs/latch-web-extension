@@ -99,6 +99,8 @@ export function buildSendRequestFromDraft(
   if (signerType === 'freighter' && account.gAddress) {
     req.signerG = account.gAddress
   }
+  const keyDataHex = account.mode === 'passkey' ? account.passkeyKeyDataHex?.trim() : undefined
+  if (keyDataHex) req.keyDataHex = keyDataHex
 
   return req
 }

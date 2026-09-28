@@ -60,7 +60,7 @@ import { SwapRouteViews, type SwapOverlayFlags } from './swap/SwapRouteViews'
 import { SendRouteViews } from './send/SendRouteViews'
 import { AccountRouteViews } from './accounts/AccountRouteViews'
 import { DappRouteViews } from './dapp/DappRouteViews'
-import { isWalletResultOnlyUi, readPendingWalletOutcome } from '../lib/walletOutcome'
+import { readPendingWalletOutcome } from '../lib/walletOutcome'
 
 export function LatchRoot({ surface }: { surface: Surface }) {
   useTheme()
@@ -74,8 +74,9 @@ export function LatchRoot({ surface }: { surface: Surface }) {
   const [loading, setLoading] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  // A popup reopened after a background confirm job lands on its result screen.
   useEffect(() => {
-    if (!isWalletResultOnlyUi()) return
+    if (surface !== 'popup') return
     void (async () => {
       const pending = await readPendingWalletOutcome()
       if (!pending || pending.status === 'in_progress') return
@@ -85,7 +86,7 @@ export function LatchRoot({ surface }: { surface: Surface }) {
       else if (pending.kind === 'multisigApprove') setRoute('multisigProposalDetail')
       else if (pending.kind === 'accountSigners') setRoute('accountSigners')
     })()
-  }, [])
+  }, [surface])
 
   const {
     setupState,

@@ -323,6 +323,34 @@ describe('tryHandleSignersMessage', () => {
     expect(storedSigners).toEqual([])
   })
 
+  it('restores the one-backup limit copy when a second backup is rejected', async () => {
+    storedSigners = []
+    addAccountSigner.mockRejectedValue(
+      new BackendError('this account already has a backup signer', {
+        status: 409,
+        code: 'already_signer',
+      })
+    )
+
+    const res = send()
+    await tryHandleSignersMessage(
+      {
+        type: 'EXECUTE_ADD_BACKUP_SIGNER',
+        payload: { credentialId: 'cred-c', keyDataHex: 'cc', surface: 'popup' },
+      } as BackgroundMessage,
+      res.fn,
+      ok
+    ).catch(() => undefined)
+
+    expect(finishOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'accountSigners',
+        status: 'failure',
+        error: 'This wallet already has a backup passkey. Only one can be added.',
+      })
+    )
+  })
+
   it('drops the local record only after removal is confirmed', async () => {
     storedSigners = [
       { credentialId: 'cred-b', keyDataHex: 'bb', role: 'backup', status: 'onchain', addedAt: 20 },
