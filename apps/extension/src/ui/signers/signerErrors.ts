@@ -21,6 +21,8 @@ export function signerErrorMessage(error: SerializableError | undefined, fallbac
       return 'This signer was never fully set up, so it cannot be removed yet. Finish its setup first.'
     case 'no_default_rule':
       return 'This wallet has no default signing rule to update. Contact support before retrying.'
+    case 'already_signer':
+      return 'This wallet already has a backup passkey. Only one can be added.'
     case 'signer_added_index_failed':
       return 'The passkey was added on-chain, but saving it for recovery failed. Choose Finish setup to retry.'
     case 'validation_error':

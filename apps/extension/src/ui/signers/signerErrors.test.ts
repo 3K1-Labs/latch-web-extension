@@ -14,6 +14,12 @@ describe('signerErrorMessage', () => {
     expect(signerErrorMessage({ message: '', code: 'signer_id_unknown' }, 'x')).toMatch(
       /Finish its setup/
     )
+    expect(
+      signerErrorMessage(
+        { message: 'this account already has a backup signer', code: 'already_signer' },
+        'x'
+      )
+    ).toBe('This wallet already has a backup passkey. Only one can be added.')
     expect(signerErrorMessage({ message: '', code: 'signer_added_index_failed' }, 'x')).toMatch(
       /added on-chain/
     )
