@@ -639,6 +639,29 @@ describe('fetchSmartAccountPayments', () => {
     expect(rows[0]!.transactionHash).toBe('hash-a')
     expect(rows[0]!.to).toBe(C_SMART)
   })
+
+  it('throws when SAC getEvents fails instead of returning an empty feed', async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        const body = JSON.parse(String(init.body)) as { method: string }
+        if (body.method === 'getLatestLedger') {
+          return new Response(JSON.stringify({ result: { sequence: 50_000 } }))
+        }
+        return new Response('nope', { status: 500 })
+      }
+      return new Response('{}', { status: 404 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      fetchSmartAccountPayments({
+        cAddress: C_SMART,
+        horizonUrl: 'https://horizon-testnet.stellar.org',
+        rpcUrl: 'https://soroban-testnet.stellar.org',
+        networkPassphrase: PASSPHRASE,
+      })
+    ).rejects.toThrow(/Transaction history incomplete/)
+  })
 })
 
 describe('makeTransferEvent helper', () => {

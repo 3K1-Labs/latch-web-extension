@@ -15,6 +15,11 @@ import {
   networkPassphraseFor,
   sorobanRpcUrlFor,
 } from './network/config'
+import {
+  mergeActivityRows,
+  readActivityHistory,
+  writeActivityHistory,
+} from './activityHistory'
 import { getAccounts } from './storage'
 import { getMarketPrices } from './marketPrices'
 import { computeBalanceUsd } from './tokenPrices'
@@ -36,7 +41,6 @@ type Snapshot = {
 }
 
 const FRESH_TTL_MS = 60_000
-const MAX_STALE_MS = 5 * 60_000
 
 let memoryCacheByAccountId: Map<string, Snapshot> | null = null
 const inflightByAccountId: Map<string, Promise<GetSmartAccountTransactionsResponse>> = new Map()
@@ -48,39 +52,6 @@ export function clearSmartAccountTransactionsMemoryCache(): void {
 
 function snapshotFreshEnough(s: Snapshot, now: number): boolean {
   return now - s.updatedAtMs < FRESH_TTL_MS
-}
-
-function snapshotUsableAsStaleFallback(s: Snapshot, now: number): boolean {
-  return now - s.updatedAtMs < MAX_STALE_MS
-}
-
-async function storageKeyForAccount(accountId: string): Promise<string> {
-  const network = await getActiveNetwork()
-  return `latch.smartAccountTransactions.${network}.${accountId}.v1`
-}
-
-async function readPersistedSnapshot(accountId: string): Promise<Snapshot | null> {
-  try {
-    const key = await storageKeyForAccount(accountId)
-    const r = await chrome.storage.local.get([key])
-    const raw = r[key]
-    if (!raw || typeof raw !== 'object') return null
-    const s = raw as Partial<Snapshot>
-    if (typeof s.updatedAtMs !== 'number') return null
-    if (!s.data || typeof s.data !== 'object') return null
-    return { updatedAtMs: s.updatedAtMs, data: s.data as GetSmartAccountTransactionsResponse }
-  } catch {
-    return null
-  }
-}
-
-async function writePersistedSnapshot(accountId: string, snapshot: Snapshot): Promise<void> {
-  try {
-    const key = await storageKeyForAccount(accountId)
-    await chrome.storage.local.set({ [key]: snapshot })
-  } catch {
-    // best-effort only
-  }
 }
 
 function classifyKind(
@@ -183,17 +154,18 @@ function trackInflight(
   })
 }
 
-function revalidateInBackground(accountId: string): void {
-  if (inflightByAccountId.has(accountId)) return
-
-  const p = computeTransactionsOnce(accountId).then(async (data) => {
-    const snapshot: Snapshot = { updatedAtMs: Date.now(), data }
-    memoryCacheByAccountId!.set(accountId, snapshot)
-    await writePersistedSnapshot(accountId, snapshot)
-    return data
-  })
-
-  void trackInflight(accountId, p).catch(() => {})
+async function rememberSuccessfulScan(
+  accountId: string,
+  data: GetSmartAccountTransactionsResponse
+): Promise<GetSmartAccountTransactionsResponse> {
+  const stored = await readActivityHistory(accountId)
+  const items = mergeActivityRows(data.items, stored)
+  try {
+    await writeActivityHistory(accountId, items)
+  } catch {
+    // The merged list is still returned for this session.
+  }
+  return { items }
 }
 
 export async function runGetSmartAccountTransactions(
@@ -211,39 +183,22 @@ export async function runGetSmartAccountTransactions(
     const mem = memoryCacheByAccountId.get(accountId)
     if (mem && snapshotFreshEnough(mem, now)) return mem.data
 
-    if (!mem) {
-      const persisted = await readPersistedSnapshot(accountId)
-      if (persisted) {
-        memoryCacheByAccountId.set(accountId, persisted)
-        if (snapshotFreshEnough(persisted, now)) return persisted.data
-        if (snapshotUsableAsStaleFallback(persisted, now)) {
-          revalidateInBackground(accountId)
-          return persisted.data
-        }
-      }
-    } else if (snapshotUsableAsStaleFallback(mem, now)) {
-      revalidateInBackground(accountId)
-      return mem.data
-    }
-
     const existing = inflightByAccountId.get(accountId)
     if (existing) return await existing
   }
 
-  const p = computeTransactionsOnce(accountId).then(async (data) => {
-    const snapshot: Snapshot = { updatedAtMs: Date.now(), data }
-    memoryCacheByAccountId!.set(accountId, snapshot)
-    await writePersistedSnapshot(accountId, snapshot)
-    return data
-  })
+  const p = computeTransactionsOnce(accountId).then((data) => rememberSuccessfulScan(accountId, data))
 
   try {
-    return await trackInflight(accountId, p)
+    const data = await trackInflight(accountId, p)
+    const snapshot: Snapshot = { updatedAtMs: Date.now(), data }
+    memoryCacheByAccountId.set(accountId, snapshot)
+    return data
   } catch (e) {
+    const stored = await readActivityHistory(accountId)
+    if (stored.length > 0) return { items: stored }
     const fallback = memoryCacheByAccountId.get(accountId)
-    if (fallback && snapshotUsableAsStaleFallback(fallback, Date.now())) {
-      return fallback.data
-    }
+    if (fallback && fallback.data.items.length > 0) return fallback.data
     throw e
   }
 }

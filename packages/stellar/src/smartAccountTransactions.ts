@@ -68,14 +68,17 @@ async function horizonGet(url: string, signal?: AbortSignal): Promise<unknown> {
       headers: { Accept: 'application/json' },
       signal: merged,
     })
-    if (!res.ok) return null
+    if (!res.ok) {
+      throw new Error(`Horizon HTTP ${res.status}`)
+    }
     try {
       return await res.json()
     } catch {
-      return null
+      throw new Error('Horizon response was not JSON')
     }
-  } catch {
-    return null
+  } catch (e) {
+    if (e instanceof Error && e.message.startsWith('Horizon')) throw e
+    throw new Error('Horizon request failed')
   } finally {
     cleanup()
   }
@@ -95,13 +98,17 @@ async function sorobanRpc(
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
       signal: merged,
     })
+    if (!res.ok) {
+      throw new Error(`Soroban RPC ${method}: HTTP ${res.status}`)
+    }
     try {
       return await res.json()
     } catch {
-      return {}
+      throw new Error(`Soroban RPC ${method}: unparseable response`)
     }
-  } catch {
-    return {}
+  } catch (e) {
+    if (e instanceof Error && e.message.startsWith('Soroban RPC')) throw e
+    throw new Error(`Soroban RPC ${method}: request failed`)
   } finally {
     cleanup()
   }
@@ -183,6 +190,10 @@ export async function buildSacProbesForHistory(params: {
   }
 
   return probes.slice(0, MAX_SAC_PROBE_CONTRACTS)
+}
+
+function failureMessage(reason: unknown): string {
+  return reason instanceof Error ? reason.message : String(reason)
 }
 
 function paymentDedupeKey(tx: SmartAccountPayment): string {
@@ -369,7 +380,9 @@ async function fetchTransferEvents(
     )) as SorobanEventsPage
 
     if (resp?.error) {
-      if (reach <= SAC_EVENTS_MIN_REACH_LEDGERS) return []
+      if (reach <= SAC_EVENTS_MIN_REACH_LEDGERS) {
+        throw new Error(resp.error.message || 'Soroban getEvents failed')
+      }
       reach = Math.max(SAC_EVENTS_MIN_REACH_LEDGERS, Math.floor(reach / 2))
       continue
     }
@@ -564,6 +577,20 @@ export async function fetchSmartAccountPayments(params: {
       : Promise.resolve([] as SmartAccountPayment[]),
     fetchSacTransferEvents(params.rpcUrl, params.cAddress, assetInfo, params.signal),
   ])
+
+  const failures: string[] = []
+  if (params.gAddress?.trim() && gAddrResult.status === 'rejected') {
+    failures.push(`G-address: ${failureMessage(gAddrResult.reason)}`)
+  }
+  if (bundlerG && bundlerResult.status === 'rejected') {
+    failures.push(`bundler: ${failureMessage(bundlerResult.reason)}`)
+  }
+  if (sacResult.status === 'rejected') {
+    failures.push(`SAC events: ${failureMessage(sacResult.reason)}`)
+  }
+  if (failures.length > 0) {
+    throw new Error(`Transaction history incomplete — ${failures.join('; ')}`)
+  }
 
   const gAddrTxs = gAddrResult.status === 'fulfilled' ? gAddrResult.value : []
   const bundlerTxs = bundlerResult.status === 'fulfilled' ? bundlerResult.value : []

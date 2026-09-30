@@ -59,6 +59,8 @@ export function usePortfolioAndHistory({
   const portfolioHydratedRef = useRef(false)
   const portfolioRequestIdRef = useRef<string | null>(null)
   const historyRequestIdRef = useRef<string | null>(null)
+  const historySectionsRef = useRef(historySections)
+  historySectionsRef.current = historySections
 
   const recentActivityItems = useMemo(
     () => historySections.flatMap((section) => section.items),
@@ -140,7 +142,7 @@ export function usePortfolioAndHistory({
         }
         if (!res.ok) {
           setHistoryError(friendlyError(res.error) || 'Could not load transactions')
-          setHistorySections([])
+          if (historySectionsRef.current.length === 0) setHistorySections([])
           return
         }
         const items = (res.data?.items ?? []).map((row) =>
@@ -151,7 +153,7 @@ export function usePortfolioAndHistory({
         if (historyRequestIdRef.current === requestId) {
           logLatchError('history', e)
           setHistoryError('Could not load transactions')
-          setHistorySections([])
+          if (historySectionsRef.current.length === 0) setHistorySections([])
         }
       } finally {
         if (historyRequestIdRef.current === requestId) {
