@@ -11,6 +11,7 @@ import type {
 } from '@latch/types'
 
 import { clearAllMnemonicVaultRecords, removeMnemonicVaultForAccount } from './mnemonicVault'
+import { clearActivityHistoryForAccount, clearAllActivityHistory } from './activityHistory'
 import { getActiveNetwork } from './network/config'
 import {
   clearAllDappRequests,
@@ -632,6 +633,7 @@ export async function deleteAccount(accountId: string): Promise<{
 
   await writeAccountsBucket(network, nextAccounts, nextActive)
   await removeMnemonicVaultForAccount(accountId)
+  await clearActivityHistoryForAccount(accountId)
 
   const addr = target.smartAccountAddress?.trim()
   if (addr && !nextAccounts.some((a) => a.smartAccountAddress?.trim() === addr)) {
@@ -780,6 +782,7 @@ export async function clearPendingDappRequests() {
 export async function clearSession() {
   await clearAllMnemonicVaultRecords()
   await clearAllDappRequests()
+  await clearAllActivityHistory()
   await chrome.storage.local.remove([
     STORAGE_KEYS.accounts,
     STORAGE_KEYS.activeAccountId,
