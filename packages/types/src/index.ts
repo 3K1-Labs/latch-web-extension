@@ -869,6 +869,7 @@ export type MessageType =
   | 'EXECUTE_MULTISIG_PASSKEY_APPROVE'
   | 'RECORD_KNOWN_SAC_PROBE'
   | 'LIST_ACCOUNT_SIGNERS'
+  | 'CHECK_SIGNER_PROOF'
   | 'ATTACH_BACKUP_PASSKEY'
   | 'EXECUTE_ADD_BACKUP_SIGNER'
   | 'EXECUTE_REMOVE_ACCOUNT_SIGNER'
@@ -1069,6 +1070,7 @@ export type BackgroundRequestPayloadByType = {
   }
   RECORD_KNOWN_SAC_PROBE: RecordKnownSacProbeRequest
   LIST_ACCOUNT_SIGNERS: import('./accountSigners').ListAccountSignersRequest | undefined
+  CHECK_SIGNER_PROOF: import('./accountSigners').CheckSignerProofRequest | undefined
   ATTACH_BACKUP_PASSKEY: import('./accountSigners').AttachBackupPasskeyRequest
   EXECUTE_ADD_BACKUP_SIGNER: import('./accountSigners').ExecuteAddBackupSignerRequest
   EXECUTE_REMOVE_ACCOUNT_SIGNER: import('./accountSigners').ExecuteRemoveAccountSignerRequest
@@ -1242,6 +1244,7 @@ export type BackgroundResponseDataByType = {
   EXECUTE_MULTISIG_PASSKEY_APPROVE: import('./multisig').MultisigProposalDetail
   RECORD_KNOWN_SAC_PROBE: undefined
   LIST_ACCOUNT_SIGNERS: import('./accountSigners').ListAccountSignersResponse
+  CHECK_SIGNER_PROOF: import('./accountSigners').CheckSignerProofResponse
   ATTACH_BACKUP_PASSKEY: import('./accountSigners').AttachBackupPasskeyResponse
   EXECUTE_ADD_BACKUP_SIGNER: import('./accountSigners').ExecuteAddBackupSignerResponse
   EXECUTE_REMOVE_ACCOUNT_SIGNER: import('./accountSigners').ExecuteRemoveAccountSignerResponse

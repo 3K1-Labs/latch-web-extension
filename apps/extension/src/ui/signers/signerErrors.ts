@@ -11,6 +11,8 @@ export function signerErrorMessage(error: SerializableError | undefined, fallbac
   switch (error?.code) {
     case 'not_a_signer':
       return 'This device has not proved it signs for this wallet. Verify with your current passkey and try again.'
+    case 'signer_not_proved':
+      return "Verify with this wallet's passkey to change its signers."
     case 'unknown_account':
       return 'Latch does not recognize this smart account yet. Make sure it finished deploying.'
     case 'last_signer':
@@ -34,5 +36,18 @@ export function signerErrorMessage(error: SerializableError | undefined, fallbac
 
 /** True when the failure is only that this browser session lost its proof of ownership. */
 export function signerErrorNeedsReverify(error: SerializableError | undefined): boolean {
-  return error?.code === 'not_a_signer'
+  return error?.code === 'not_a_signer' || error?.code === 'signer_not_proved'
+}
+
+export const WRONG_WALLET_PASSKEY =
+  'That passkey is for a different wallet. Choose the passkey for this wallet.'
+
+/** True when the login ceremony proved the wallet that is currently active. */
+export function passkeyLoginMatchesAccount(
+  loggedInAddress: string | undefined,
+  activeAddress: string | undefined
+): boolean {
+  const loggedIn = loggedInAddress?.trim()
+  const active = activeAddress?.trim()
+  return Boolean(loggedIn && active && loggedIn === active)
 }

@@ -10,6 +10,7 @@ export function AddBackupPasskeyScreen({
   actionError,
   busy,
   busyLabel,
+  needsProof,
   onCreatePasskey,
   onBack,
 }: {
@@ -18,6 +19,8 @@ export function AddBackupPasskeyScreen({
   actionError: string | null
   busy: boolean
   busyLabel?: string | null
+  /** This session has not proved the active wallet's passkey yet. */
+  needsProof?: boolean
   onCreatePasskey: () => void
   onBack: () => void
 }) {
@@ -27,7 +30,9 @@ export function AddBackupPasskeyScreen({
     ? 'Preparing…'
     : busy
       ? (busyLabel ?? 'Adding passkey…')
-      : 'Create Backup Passkey'
+      : needsProof
+        ? 'Verify passkey'
+        : 'Create Backup Passkey'
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-6">
@@ -61,10 +66,12 @@ export function AddBackupPasskeyScreen({
           {prefetchReady && !busy ? (
             <div className="w-full rounded-[14px] bg-[#2a2928] p-3">
               <p className="text-[16px] font-semibold leading-[1.31] tracking-[-0.16px] text-[#fcfcfc]">
-                Two approvals
+                {needsProof ? 'Verify this wallet' : 'Two approvals'}
               </p>
               <p className="mt-1.5 text-[14px] font-normal leading-[1.34] tracking-[-0.28px] text-[#b3b3b3]">
-                First create the new passkey, then approve adding it with your current one.
+                {needsProof
+                  ? 'Confirm this wallet’s passkey first. Then you can create the backup.'
+                  : 'First create the new passkey, then approve adding it with your current one.'}
               </p>
             </div>
           ) : null}

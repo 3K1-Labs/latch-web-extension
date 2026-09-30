@@ -243,9 +243,9 @@ export async function tryHandleAccountsMessage(
         })
       }
 
-      // Persist only the credential that completed the ceremony. Backend now scopes
-      // `data.accounts` to the passkey owner, but we still keep the stricter
-      // single-credential import so this install only stores what this login proved.
+      // Persist only the credential that completed the ceremony. `data.accounts` is
+      // the session's proved set (often just this passkey) and must not replace
+      // the wallets this install already saved.
       const { account, activeAccountId } = await createAccount({
         mode: 'passkey',
         smartAccountAddress: data.smartAccountAddress,

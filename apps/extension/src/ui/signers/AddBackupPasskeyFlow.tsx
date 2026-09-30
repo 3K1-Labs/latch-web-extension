@@ -4,6 +4,8 @@ import type {
   AttachBackupPasskeyRequest,
   AttachBackupPasskeyResponse,
   BackendWebauthnBeginResponse,
+  CheckSignerProofRequest,
+  CheckSignerProofResponse,
   ExecuteAddBackupSignerRequest,
   ExecuteAddBackupSignerResponse,
   StoredAccount,
@@ -42,6 +44,7 @@ export function AddBackupPasskeyFlow({
   onBack,
   onDone,
   onSignersChanged,
+  onProve,
 }: {
   surface: 'popup' | 'sidepanel'
   activeAccount: StoredAccount | undefined
@@ -49,6 +52,8 @@ export function AddBackupPasskeyFlow({
   onBack: () => void
   onDone: () => void
   onSignersChanged: () => void
+  /** Login with this wallet's passkey so the session can change its signers. */
+  onProve: () => Promise<void>
 }) {
   const [step, setStep] = useState<AddBackupPasskeyStep>('name')
   const [passkeyName, setPasskeyName] = useState('Backup')
@@ -58,6 +63,7 @@ export function AddBackupPasskeyFlow({
   const [busy, setBusy] = useState(false)
   const [busyLabel, setBusyLabel] = useState<string | null>(null)
   const [prefetchNonce, setPrefetchNonce] = useState(0)
+  const [signerProved, setSignerProved] = useState<boolean | null>(null)
 
   const prefetchRef = useRef<{
     optionsJSON: unknown
@@ -78,6 +84,7 @@ export function AddBackupPasskeyFlow({
     if (step !== 'ceremony') {
       setPrefetchReady(false)
       setPrefetchError(null)
+      setSignerProved(null)
       prefetchRef.current = null
       return
     }
@@ -118,6 +125,12 @@ export function AddBackupPasskeyFlow({
           seq: reserved.seq,
           commitSeq: reserved.commit,
         }
+        const proof = await sendToBackground<CheckSignerProofRequest, CheckSignerProofResponse>({
+          type: 'CHECK_SIGNER_PROOF',
+          payload: { smartAccountAddress: activeAccount?.smartAccountAddress },
+        })
+        if (cancelled) return
+        setSignerProved(Boolean(proof.ok && proof.data?.proved))
         setPrefetchReady(true)
       } catch (e) {
         if (!cancelled) {
@@ -130,7 +143,7 @@ export function AddBackupPasskeyFlow({
     return () => {
       cancelled = true
     }
-  }, [step, prefetchNonce])
+  }, [step, prefetchNonce, activeAccount?.smartAccountAddress])
 
   const handleCreateBackupPasskey = useCallback(() => {
     if (!activeAccount) {
@@ -143,6 +156,12 @@ export function AddBackupPasskeyFlow({
 
     void (async () => {
       try {
+        if (!signerProved) {
+          setBusyLabel('Verifying your passkey…')
+          await onProve()
+          setSignerProved(true)
+        }
+
         const pre = prefetchRef.current
         if (!pre) {
           throw new Error(
@@ -218,7 +237,15 @@ export function AddBackupPasskeyFlow({
         setBusyLabel(null)
       }
     })()
-  }, [activeAccount, onSignersChanged, prefetchError, prefetchReady, surface])
+  }, [
+    activeAccount,
+    onProve,
+    onSignersChanged,
+    prefetchError,
+    prefetchReady,
+    signerProved,
+    surface,
+  ])
 
   if (step === 'success') {
     return (
@@ -238,6 +265,7 @@ export function AddBackupPasskeyFlow({
         actionError={actionError}
         busy={busy}
         busyLabel={busyLabel}
+        needsProof={signerProved === false}
         onCreatePasskey={handleCreateBackupPasskey}
         onBack={() => {
           if (busy) return

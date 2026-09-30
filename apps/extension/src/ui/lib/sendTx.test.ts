@@ -14,6 +14,7 @@ import {
   isMissingTrustlineErrorMessage,
   isOpaqueSendBuildFailureMessage,
   isPrepareSignMissingSetupError,
+  isSwapRuleReconfigureError,
   missingTrustlineSendMessage,
   normalizeDelegatedBuildFields,
   resolvePasskeyAuthEntryXdr,
@@ -260,6 +261,12 @@ describe('isPrepareSignMissingSetupError', () => {
     expect(isPrepareSignMissingSetupError({ status: 400, code: 'invalid_network' })).toBe(false)
     expect(isPrepareSignMissingSetupError({ status: 500, code: 'internal_error' })).toBe(false)
   })
+
+  it('does not retry setup when this passkey is not a signer', () => {
+    expect(isPrepareSignMissingSetupError({ status: 409, code: 'signer_rule_not_found' })).toBe(
+      false
+    )
+  })
 })
 
 describe('isBuildSendMissingSetupError', () => {
@@ -280,6 +287,11 @@ describe('isBuildSendMissingSetupError', () => {
   it('ignores unrelated errors', () => {
     expect(isBuildSendMissingSetupError({ status: 400, code: 'invalid_network' })).toBe(false)
     expect(isBuildSendMissingSetupError({ status: 500, code: 'internal_error' })).toBe(false)
+  })
+
+  it('does not retry setup when this passkey is not a signer', () => {
+    expect(isBuildSendMissingSetupError({ status: 409, code: 'signer_rule_not_found' })).toBe(false)
+    expect(isSwapRuleReconfigureError({ status: 409, code: 'signer_rule_not_found' })).toBe(false)
   })
 })
 

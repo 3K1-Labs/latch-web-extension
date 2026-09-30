@@ -20,6 +20,12 @@ vi.mock('../api/webauthn', () => ({
   attachPasskeySigner: (...args: unknown[]) => attachPasskeySigner(...args),
 }))
 
+const getBackendAccounts = vi.fn()
+
+vi.mock('../api/accounts', () => ({
+  getBackendAccounts: (...args: unknown[]) => getBackendAccounts(...args),
+}))
+
 const signAndSubmitBuiltTxInBackground = vi.fn()
 
 vi.mock('../tx/signBuiltTx', () => ({
@@ -156,6 +162,78 @@ describe('tryHandleSignersMessage', () => {
 
     expect(res.result().data!.signer.status).toBe('pending')
     expect(storedSigners).toHaveLength(1)
+    expect(attachPasskeySigner).toHaveBeenCalledWith(
+      'CWALLET',
+      expect.objectContaining({ callerCredentialId: 'cred-a' })
+    )
+  })
+
+  it('sends the active passkey as callerCredentialId on add and remove', async () => {
+    storedSigners = [
+      { credentialId: 'cred-b', keyDataHex: 'bb', role: 'backup', status: 'onchain', addedAt: 20 },
+    ]
+    addAccountSigner.mockResolvedValue({ alreadyConfigured: true })
+    await tryHandleSignersMessage(
+      {
+        type: 'EXECUTE_ADD_BACKUP_SIGNER',
+        payload: { credentialId: 'cred-b' },
+      } as BackgroundMessage,
+      send().fn,
+      ok
+    )
+    expect(addAccountSigner).toHaveBeenCalledWith(
+      expect.objectContaining({ callerCredentialId: 'cred-a' })
+    )
+
+    removeAccountSigner.mockResolvedValue(build)
+    signAndSubmitBuiltTxInBackground.mockResolvedValue({ transactionHash: 'hash-r' })
+    confirmRemoveAccountSigner.mockResolvedValue({ confirmed: true })
+    await tryHandleSignersMessage(
+      {
+        type: 'EXECUTE_REMOVE_ACCOUNT_SIGNER',
+        payload: { credentialId: 'cred-b' },
+      } as BackgroundMessage,
+      send().fn,
+      ok
+    )
+    expect(removeAccountSigner).toHaveBeenCalledWith(
+      expect.objectContaining({ callerCredentialId: 'cred-a' })
+    )
+    expect(confirmRemoveAccountSigner).toHaveBeenCalledWith(
+      expect.objectContaining({ callerCredentialId: 'cred-a' })
+    )
+  })
+
+  it('reports signer proof from the proved-account list', async () => {
+    getBackendAccounts.mockResolvedValueOnce({
+      accounts: [{ smartAccountAddress: 'CWALLET', credentialId: 'cred-a' }],
+    })
+    const proved = send<{ proved: boolean }>()
+    await tryHandleSignersMessage(
+      { type: 'CHECK_SIGNER_PROOF', payload: undefined } as BackgroundMessage,
+      proved.fn,
+      ok
+    )
+    expect(getBackendAccounts).toHaveBeenCalledWith({ credentialId: 'cred-a' })
+    expect(proved.result().data!.proved).toBe(true)
+
+    getBackendAccounts.mockResolvedValueOnce({ accounts: [] })
+    const missing = send<{ proved: boolean }>()
+    await tryHandleSignersMessage(
+      { type: 'CHECK_SIGNER_PROOF', payload: undefined } as BackgroundMessage,
+      missing.fn,
+      ok
+    )
+    expect(missing.result().data!.proved).toBe(false)
+
+    getBackendAccounts.mockRejectedValueOnce(new Error('offline'))
+    const failed = send<{ proved: boolean }>()
+    await tryHandleSignersMessage(
+      { type: 'CHECK_SIGNER_PROOF', payload: undefined } as BackgroundMessage,
+      failed.fn,
+      ok
+    )
+    expect(failed.result().data!.proved).toBe(false)
   })
 
   it('signs, submits and confirms an add, then marks the signer on-chain', async () => {

@@ -86,6 +86,29 @@ describe('ensureSendRulesConfigured', () => {
     expect(signAndSubmit).toHaveBeenCalledTimes(2)
   })
 
+  it('rethrows signer_rule_not_found without signing or looping', async () => {
+    setupSendRules.mockRejectedValue(
+      new BackendError(
+        "This passkey isn't a signer on this wallet. Sign in with a passkey that is.",
+        {
+          code: 'signer_rule_not_found',
+          status: 409,
+        }
+      )
+    )
+    const signAndSubmit = vi.fn()
+
+    await expect(
+      ensureSendRulesConfigured({
+        setupBody: SEND_BODY,
+        activeAccount: ACCOUNT,
+        signAndSubmit,
+      })
+    ).rejects.toThrow("isn't a signer on this wallet")
+    expect(setupSendRules).toHaveBeenCalledTimes(1)
+    expect(signAndSubmit).not.toHaveBeenCalled()
+  })
+
   it('gives up after the attempt cap instead of looping forever', async () => {
     setupSendRules.mockResolvedValue({ txXdr: 'x', remainingSetupCount: 3 })
 
@@ -118,6 +141,29 @@ describe('ensureSwapRulesConfigured', () => {
     })
 
     expect(result).toBe('already_configured')
+  })
+
+  it('rethrows signer_rule_not_found without signing or looping', async () => {
+    setupSwapRules.mockRejectedValue(
+      new BackendError(
+        "This passkey isn't a signer on this wallet. Sign in with a passkey that is.",
+        {
+          code: 'signer_rule_not_found',
+          status: 409,
+        }
+      )
+    )
+    const signAndSubmit = vi.fn()
+
+    await expect(
+      ensureSwapRulesConfigured({
+        setupBody: { ...SEND_BODY, providerId: 'soroswap' },
+        activeAccount: ACCOUNT,
+        signAndSubmit,
+      })
+    ).rejects.toThrow("isn't a signer on this wallet")
+    expect(setupSwapRules).toHaveBeenCalledTimes(1)
+    expect(signAndSubmit).not.toHaveBeenCalled()
   })
 
   it('propagates other setup failures', async () => {
