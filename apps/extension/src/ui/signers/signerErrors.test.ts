@@ -1,11 +1,18 @@
 import { describe, expect, it } from 'vitest'
 
-import { signerErrorMessage, signerErrorNeedsReverify } from './signerErrors'
+import {
+  passkeyLoginMatchesAccount,
+  signerErrorMessage,
+  signerErrorNeedsReverify,
+} from './signerErrors'
 
 describe('signerErrorMessage', () => {
   it('explains each signer-specific code in plain language', () => {
     expect(signerErrorMessage({ message: 'forbidden', code: 'not_a_signer' }, 'x')).toMatch(
       /Verify with your current passkey/
+    )
+    expect(signerErrorMessage({ message: '', code: 'signer_not_proved' }, 'x')).toBe(
+      "Verify with this wallet's passkey to change its signers."
     )
     expect(signerErrorMessage({ message: '', code: 'last_signer' }, 'x')).toMatch(/only signer/)
     expect(signerErrorMessage({ message: '', code: 'signer_locked_out' }, 'x')).toMatch(
@@ -38,9 +45,19 @@ describe('signerErrorMessage', () => {
 })
 
 describe('signerErrorNeedsReverify', () => {
-  it('only offers re-verification for a lost session', () => {
+  it('offers re-verification when the session has not proved this passkey', () => {
     expect(signerErrorNeedsReverify({ message: '', code: 'not_a_signer' })).toBe(true)
+    expect(signerErrorNeedsReverify({ message: '', code: 'signer_not_proved' })).toBe(true)
     expect(signerErrorNeedsReverify({ message: '', code: 'last_signer' })).toBe(false)
     expect(signerErrorNeedsReverify(undefined)).toBe(false)
+  })
+})
+
+describe('passkeyLoginMatchesAccount', () => {
+  it('accepts only the active wallet', () => {
+    expect(passkeyLoginMatchesAccount('CADDR', 'CADDR')).toBe(true)
+    expect(passkeyLoginMatchesAccount(' CADDR ', 'CADDR')).toBe(true)
+    expect(passkeyLoginMatchesAccount('COTHER', 'CADDR')).toBe(false)
+    expect(passkeyLoginMatchesAccount(undefined, 'CADDR')).toBe(false)
   })
 })

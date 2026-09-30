@@ -66,6 +66,11 @@ export async function executeAddBackupSignerInBackground(args: {
     return record
   }
 
+  const callerCredentialId = activeAccount.passkeyCredentialId?.trim()
+  if (!callerCredentialId) {
+    throw new Error('This wallet has no passkey credential to prove.')
+  }
+
   const runConfirm = async (
     txHash: string,
     contextRuleId: number
@@ -79,6 +84,7 @@ export async function executeAddBackupSignerInBackground(args: {
         label,
         seq,
         txHash,
+        callerCredentialId,
       })
     )
     const signer = await persist({
@@ -98,7 +104,12 @@ export async function executeAddBackupSignerInBackground(args: {
     return await runConfirm(pending.txHash, pending.contextRuleId)
   }
 
-  const build = await addAccountSigner({ smartAccountAddress, keyDataHex, credentialId })
+  const build = await addAccountSigner({
+    smartAccountAddress,
+    keyDataHex,
+    credentialId,
+    callerCredentialId,
+  })
 
   if (build.alreadyConfigured) {
     // Already authorized on-chain (a repeat add, or a retry after the submit

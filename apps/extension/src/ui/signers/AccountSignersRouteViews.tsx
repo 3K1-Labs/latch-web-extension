@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
   AccountSignerRecord,
   BackendWebauthnAuthenticationFinishResponse,
+  CheckSignerProofRequest,
+  CheckSignerProofResponse,
   BackendWebauthnBeginResponse,
   ExecuteAddBackupSignerRequest,
   ExecuteAddBackupSignerResponse,
@@ -23,7 +25,12 @@ import {
 } from '../webauthn/passkey'
 import { runWebauthnCredential } from '../webauthn/runWebauthnCredential'
 import { AddBackupPasskeyFlow } from './AddBackupPasskeyFlow'
-import { signerErrorMessage, signerErrorNeedsReverify } from './signerErrors'
+import {
+  passkeyLoginMatchesAccount,
+  signerErrorMessage,
+  signerErrorNeedsReverify,
+  WRONG_WALLET_PASSKEY,
+} from './signerErrors'
 
 export function AccountSignersRouteViews({
   route,
@@ -78,7 +85,17 @@ export function AccountSignersRouteViews({
     setError(null)
     setNeedsReverify(false)
     void loadSigners()
-  }, [route, loadSigners])
+    if (!smartAccountAddress) return
+    void (async () => {
+      const proof = await sendToBackground<CheckSignerProofRequest, CheckSignerProofResponse>({
+        type: 'CHECK_SIGNER_PROOF',
+        payload: { smartAccountAddress },
+      })
+      if (!proof.ok || proof.data?.proved) return
+      setNeedsReverify(true)
+      setError(signerErrorMessage({ message: '', code: 'signer_not_proved' }, ''))
+    })()
+  }, [route, loadSigners, smartAccountAddress])
 
   // The popup is destroyed while a passkey ceremony holds focus, so an add or
   // remove that was still running lands its result here instead.
@@ -95,49 +112,52 @@ export function AccountSignersRouteViews({
   }, [loadSigners])
 
   /**
-   * Prove this browser session still owns a signer on the account.
+   * Prove the active wallet's passkey for this session.
    *
-   * `not_a_signer` means the anonymous `sid` cookie was lost or rotated, not
-   * that the user lost access — re-running the normal passkey login restores
-   * the session so the failed step can be retried.
+   * Discoverable login can return a different wallet. That does not count:
+   * signer changes must be proved by the passkey of the wallet on screen.
    */
-  const handleReverify = useCallback(() => {
+  const proveActiveSigner = useCallback(async () => {
     setBusyLabel('Verifying your passkey…')
     setError(null)
-    void (async () => {
-      try {
-        const begin = await sendToBackground<undefined, BackendWebauthnBeginResponse>({
-          type: 'PASSKEY_AUTH_BEGIN',
-          payload: undefined,
-        })
-        if (!begin.ok) throw new Error(signerErrorMessage(begin.error, 'Could not start passkey.'))
+    try {
+      const begin = await sendToBackground<undefined, BackendWebauthnBeginResponse>({
+        type: 'PASSKEY_AUTH_BEGIN',
+        payload: undefined,
+      })
+      if (!begin.ok) throw new Error(signerErrorMessage(begin.error, 'Could not start passkey.'))
 
-        const optionsJSON = prepareDiscoverableAuthenticationOptions(begin.data?.options)
-        assertBeginOptionsRpIdMatchesCanonicalDomain(optionsJSON)
-        const assertion = await runWebauthnCredential(surface, 'authentication', optionsJSON)
+      const optionsJSON = prepareDiscoverableAuthenticationOptions(begin.data?.options)
+      assertBeginOptionsRpIdMatchesCanonicalDomain(optionsJSON)
+      const assertion = await runWebauthnCredential(surface, 'authentication', optionsJSON)
 
-        const finish = await sendToBackground<
-          { response: unknown },
-          BackendWebauthnAuthenticationFinishResponse
-        >({
-          type: 'PASSKEY_AUTH_FINISH',
-          payload: { response: assertion },
-        })
-        if (!finish.ok)
-          throw new Error(signerErrorMessage(finish.error, 'Could not verify passkey.'))
-
-        setNeedsReverify(false)
-        const retry = retryAfterReverifyRef.current
-        retryAfterReverifyRef.current = null
-        if (retry) await retry()
-        else await loadSigners()
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e))
-      } finally {
-        setBusyLabel(null)
+      const finish = await sendToBackground<
+        { response: unknown },
+        BackendWebauthnAuthenticationFinishResponse
+      >({
+        type: 'PASSKEY_AUTH_FINISH',
+        payload: { response: assertion },
+      })
+      if (!finish.ok) throw new Error(signerErrorMessage(finish.error, 'Could not verify passkey.'))
+      if (!passkeyLoginMatchesAccount(finish.data?.smartAccountAddress, smartAccountAddress)) {
+        throw new Error(WRONG_WALLET_PASSKEY)
       }
-    })()
-  }, [loadSigners, surface])
+
+      setNeedsReverify(false)
+      const retry = retryAfterReverifyRef.current
+      retryAfterReverifyRef.current = null
+      if (retry) await retry()
+      else await loadSigners()
+    } finally {
+      setBusyLabel(null)
+    }
+  }, [loadSigners, smartAccountAddress, surface])
+
+  const handleReverify = useCallback(() => {
+    void proveActiveSigner().catch((e: unknown) => {
+      setError(e instanceof Error ? e.message : String(e))
+    })
+  }, [proveActiveSigner])
 
   /** Retry only the confirm step for a signer that is on-chain but unindexed. */
   const handleFinishSetup = useCallback(
@@ -215,6 +235,7 @@ export function AccountSignersRouteViews({
         surface={surface}
         activeAccount={activeAccount}
         accounts={accounts}
+        onProve={proveActiveSigner}
         onBack={() => onSetRoute('accountSigners')}
         onDone={() => onSetRoute('accountSigners')}
         onSignersChanged={() => {

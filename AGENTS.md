@@ -131,7 +131,7 @@ The Latch API identifies callers by an anonymous **`sid` cookie** that survives 
 
 Rules to preserve:
 
-- **`PASSKEY_AUTH_FINISH` persists only the credential that completed the ceremony.** Never loop over `data.accounts` and upsert siblings — that list is every account on the cookie user.
+- **`PASSKEY_AUTH_FINISH` persists only the credential that completed the ceremony.** Never replace the local account list with `data.accounts` or `GET /api/accounts`. That response is the passkeys this session has proved, which is often only the one that just signed in. Other wallets saved on this install stay in local storage.
 - **Multisig sync requires a local signer.** `syncLocalMultisigAccountsFromBackend` imports a listed wallet only when a member matches a local passkey/seed (`remoteMultisigMatchesLocalSigner`); creator-only rows are skipped. With no local signer it imports nothing.
 - **Empty account store clears `sid`** (fresh install or last account removed). Use `clearLatchApiSession()`.
 - **`LOGOUT` is a full local wipe:** `clearLatchApiSession()` plus `clearSession()` (all networks' accounts, vaults, setup, denylist). On-chain wallets are untouched. UI confirms, then returns to onboarding.

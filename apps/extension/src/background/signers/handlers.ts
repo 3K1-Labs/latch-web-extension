@@ -2,12 +2,14 @@ import type {
   AccountSignerRecord,
   AttachBackupPasskeyRequest,
   BackgroundMessage,
+  CheckSignerProofRequest,
   ExecuteAddBackupSignerRequest,
   ExecuteRemoveAccountSignerRequest,
   ListAccountSignersRequest,
   StoredAccount,
 } from '@latch/types'
 
+import { getBackendAccounts } from '../api/accounts'
 import { attachPasskeySigner } from '../api/webauthn'
 import { finishOutcome } from '../confirm/finishOutcome'
 import { signerErrorMessage } from '../../ui/signers/signerErrors'
@@ -32,6 +34,13 @@ async function resolveSignerAccount(smartAccountAddress?: string): Promise<Store
     throw new Error('Only passkey wallets have backup signers.')
   }
   return account
+}
+
+/** The passkey the API must already have proved for this session. */
+function callerCredentialId(account: StoredAccount): string {
+  const id = account.passkeyCredentialId?.trim()
+  if (!id) throw new Error('This wallet has no passkey credential to prove.')
+  return id
 }
 
 /**
@@ -75,6 +84,30 @@ export async function tryHandleSignersMessage(
       return true
     }
 
+    case 'CHECK_SIGNER_PROOF': {
+      const req = (message.payload ?? {}) as CheckSignerProofRequest
+      const account = await resolveSignerAccount(req.smartAccountAddress)
+      const credentialId = callerCredentialId(account)
+      let proved = false
+      try {
+        const data = await getBackendAccounts({ credentialId })
+        proved = (data.accounts ?? []).some(
+          (a) => a.smartAccountAddress === account.smartAccountAddress
+        )
+      } catch {
+        // A failed probe should prompt for the passkey, not surface a 401 later.
+        proved = false
+      }
+      sendResponse(
+        ok({
+          proved,
+          credentialId,
+          smartAccountAddress: account.smartAccountAddress,
+        })
+      )
+      return true
+    }
+
     case 'ATTACH_BACKUP_PASSKEY': {
       const req = message.payload as AttachBackupPasskeyRequest
       const account = await resolveSignerAccount(req.smartAccountAddress)
@@ -82,6 +115,7 @@ export async function tryHandleSignersMessage(
         response: req.response,
         displayName: req.displayName,
         seq: req.seq,
+        callerCredentialId: callerCredentialId(account),
       })
       // Pending until `add_signer` settles: attaching records the credential
       // but authorizes nothing on-chain.

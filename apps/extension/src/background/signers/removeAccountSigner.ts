@@ -42,7 +42,12 @@ export async function executeRemoveAccountSignerInBackground(args: {
     throw new Error('This is the passkey this device signs with. Remove a backup passkey instead.')
   }
 
-  const build = await removeAccountSigner({ smartAccountAddress, credentialId })
+  const callerCredentialId = activeAccount.passkeyCredentialId?.trim()
+  if (!callerCredentialId) {
+    throw new Error('This wallet has no passkey credential to prove.')
+  }
+
+  const build = await removeAccountSigner({ smartAccountAddress, credentialId, callerCredentialId })
   const submitted = await signAndSubmitBuiltTxInBackground({ build, activeAccount })
   const txHash = transactionHashOf(submitted)
   if (!txHash) {
@@ -58,6 +63,7 @@ export async function executeRemoveAccountSignerInBackground(args: {
       credentialId,
       contextRuleId: contextRuleIdOf(build.contextRuleId),
       txHash,
+      callerCredentialId,
     })
   )
 

@@ -23,6 +23,25 @@ describe('api/errors', () => {
     })
   })
 
+  it('replaces signer_rule_not_found with user copy and keeps the code', () => {
+    const copy = "This passkey isn't a signer on this wallet. Sign in with a passkey that is."
+    expect(
+      parseApiError(409, {
+        error: 'this passkey is not an authorized signer of this smart account',
+        code: 'signer_rule_not_found',
+        message: 'this passkey is not an authorized signer of this smart account',
+      })
+    ).toEqual({ message: copy, code: 'signer_rule_not_found' })
+    expect(
+      parseApiError(409, {
+        error: {
+          code: 'signer_rule_not_found',
+          message: 'this passkey is not an authorized signer of this smart account',
+        },
+      })
+    ).toEqual({ message: copy, code: 'signer_rule_not_found' })
+  })
+
   it('falls back when body is empty', () => {
     expect(parseApiError(500, undefined)).toEqual({ message: 'Request failed: 500' })
   })

@@ -26,6 +26,11 @@ export interface AttachPasskeySignerRequest {
   displayName?: string
   seq?: number
   network?: Network
+  /**
+   * The passkey this session must already have proved. The API rejects the
+   * attach when this id is missing from the session's proved set.
+   */
+  callerCredentialId?: string
 }
 
 export interface AttachPasskeySignerResponse {
@@ -48,6 +53,8 @@ export interface AddAccountSignerRequest {
   keyDataHex: string
   credentialId?: string
   network?: Network
+  /** Active passkey this session has proved. See `AttachPasskeySignerRequest`. */
+  callerCredentialId?: string
 }
 
 /**
@@ -72,6 +79,8 @@ export interface ConfirmAddAccountSignerRequest {
   seq?: number
   txHash: string
   network?: Network
+  /** Active passkey this session has proved. See `AttachPasskeySignerRequest`. */
+  callerCredentialId?: string
 }
 
 export interface ConfirmAddAccountSignerResponse {
@@ -87,6 +96,8 @@ export interface RemoveAccountSignerRequest {
   smartAccountAddress: string
   credentialId: string
   network?: Network
+  /** Active passkey this session has proved. See `AttachPasskeySignerRequest`. */
+  callerCredentialId?: string
 }
 
 export interface RemoveAccountSignerResponse extends BuildSendTxResponse {
@@ -100,6 +111,8 @@ export interface ConfirmRemoveAccountSignerRequest {
   contextRuleId: number
   txHash: string
   network?: Network
+  /** Active passkey this session has proved. See `AttachPasskeySignerRequest`. */
+  callerCredentialId?: string
 }
 
 export interface ConfirmRemoveAccountSignerResponse {
@@ -138,6 +151,17 @@ export interface AccountSignerRecord {
 
 export interface ListAccountSignersRequest {
   smartAccountAddress?: string
+}
+
+/** `GET /api/accounts?credentialId=` — true only when that passkey's wallet is in the proved set. */
+export interface CheckSignerProofRequest {
+  smartAccountAddress?: string
+}
+
+export interface CheckSignerProofResponse {
+  proved: boolean
+  credentialId: string
+  smartAccountAddress: string
 }
 
 export interface ListAccountSignersResponse {
