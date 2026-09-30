@@ -14,7 +14,10 @@ vi.mock('./network/config', () => ({
   getActiveNetwork: async () => 'testnet' as const,
 }))
 
-function row(partial: Partial<SmartAccountTransactionRow> & Pick<SmartAccountTransactionRow, 'id' | 'transactionHash' | 'createdAt'>): SmartAccountTransactionRow {
+function row(
+  partial: Partial<SmartAccountTransactionRow> &
+    Pick<SmartAccountTransactionRow, 'id' | 'transactionHash' | 'createdAt'>
+): SmartAccountTransactionRow {
   return {
     direction: 'sent',
     assetCode: 'XLM',
@@ -31,12 +34,8 @@ function row(partial: Partial<SmartAccountTransactionRow> & Pick<SmartAccountTra
 
 describe('mergeActivityRows', () => {
   it('keeps stored rows that the latest scan no longer returns', () => {
-    const stored = [
-      row({ id: 'old', transactionHash: 'old', createdAt: '2024-01-01T00:00:00Z' }),
-    ]
-    const fresh = [
-      row({ id: 'new', transactionHash: 'new', createdAt: '2024-06-01T00:00:00Z' }),
-    ]
+    const stored = [row({ id: 'old', transactionHash: 'old', createdAt: '2024-01-01T00:00:00Z' })]
+    const fresh = [row({ id: 'new', transactionHash: 'new', createdAt: '2024-06-01T00:00:00Z' })]
     const merged = mergeActivityRows(fresh, stored)
     expect(merged.map((r) => r.transactionHash)).toEqual(['new', 'old'])
   })

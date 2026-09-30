@@ -104,7 +104,7 @@ async function sorobanRpc(
     try {
       return await res.json()
     } catch {
-      throw new Error(`Soroban RPC ${method}: unparseable response`)
+      throw new Error(`Soroban RPC ${method}: unparsable response`)
     }
   } catch (e) {
     if (e instanceof Error && e.message.startsWith('Soroban RPC')) throw e

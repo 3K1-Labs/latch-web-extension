@@ -15,11 +15,7 @@ import {
   networkPassphraseFor,
   sorobanRpcUrlFor,
 } from './network/config'
-import {
-  mergeActivityRows,
-  readActivityHistory,
-  writeActivityHistory,
-} from './activityHistory'
+import { mergeActivityRows, readActivityHistory, writeActivityHistory } from './activityHistory'
 import { getAccounts } from './storage'
 import { getMarketPrices } from './marketPrices'
 import { computeBalanceUsd } from './tokenPrices'
@@ -187,7 +183,9 @@ export async function runGetSmartAccountTransactions(
     if (existing) return await existing
   }
 
-  const p = computeTransactionsOnce(accountId).then((data) => rememberSuccessfulScan(accountId, data))
+  const p = computeTransactionsOnce(accountId).then((data) =>
+    rememberSuccessfulScan(accountId, data)
+  )
 
   try {
     const data = await trackInflight(accountId, p)
