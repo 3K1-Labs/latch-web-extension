@@ -7,6 +7,7 @@ import type {
   ListMultisigProposalsResponse,
 } from '@latch/types'
 
+import { getActiveNetwork } from '../network/config'
 import { latchFetch } from './client'
 import { latchExtensionJsonBody } from './webauthn'
 import { normalizeMultisigProposalDetail } from './multisigNormalize'
@@ -15,10 +16,14 @@ import { withActiveNetwork } from './withActiveNetwork'
 export async function listMultisigProposals(
   smartAccountAddress: string
 ): Promise<ListMultisigProposalsResponse> {
-  const q = encodeURIComponent(smartAccountAddress)
-  return await latchFetch<ListMultisigProposalsResponse>(`/api/multisig/proposals?account=${q}`, {
-    method: 'GET',
+  const params = new URLSearchParams({
+    account: smartAccountAddress,
+    network: await getActiveNetwork(),
   })
+  return await latchFetch<ListMultisigProposalsResponse>(
+    `/api/multisig/proposals?${params.toString()}`,
+    { method: 'GET' }
+  )
 }
 
 export async function createMultisigProposal(
@@ -31,8 +36,9 @@ export async function createMultisigProposal(
 }
 
 export async function getMultisigProposal(proposalId: string): Promise<MultisigProposalDetail> {
+  const params = new URLSearchParams({ network: await getActiveNetwork() })
   const raw = await latchFetch<unknown>(
-    `/api/multisig/proposals/${encodeURIComponent(proposalId)}`,
+    `/api/multisig/proposals/${encodeURIComponent(proposalId)}?${params.toString()}`,
     { method: 'GET' }
   )
   return normalizeMultisigProposalDetail(raw)
@@ -46,7 +52,7 @@ export async function multisigProposalApproveDelegatedBegin(args: {
     `/api/multisig/proposals/${encodeURIComponent(args.proposalId)}/approve/delegated/begin`,
     {
       method: 'POST',
-      body: JSON.stringify({ memberId: args.memberId }),
+      body: JSON.stringify(await withActiveNetwork({ memberId: args.memberId })),
     }
   )
 }
@@ -58,11 +64,13 @@ export async function multisigProposalApproveDelegatedFinish(
     `/api/multisig/proposals/${encodeURIComponent(req.proposalId)}/approve/delegated/finish`,
     {
       method: 'POST',
-      body: JSON.stringify({
-        memberId: req.memberId,
-        signedAuthEntryBase64: req.signedAuthEntryBase64,
-        signerAddress: req.signerAddress,
-      }),
+      body: JSON.stringify(
+        await withActiveNetwork({
+          memberId: req.memberId,
+          signedAuthEntryBase64: req.signedAuthEntryBase64,
+          signerAddress: req.signerAddress,
+        })
+      ),
     }
   )
   return normalizeMultisigProposalDetail(raw)
@@ -93,14 +101,14 @@ export async function executeMultisigProposal(
 ): Promise<MultisigExecuteProposalResponse> {
   return await latchFetch<MultisigExecuteProposalResponse>(
     `/api/multisig/proposals/${encodeURIComponent(proposalId)}/execute`,
-    { method: 'POST' }
+    { method: 'POST', body: JSON.stringify(await withActiveNetwork({})) }
   )
 }
 
 export async function refreshMultisigProposal(proposalId: string): Promise<MultisigProposalDetail> {
   const raw = await latchFetch<unknown>(
     `/api/multisig/proposals/${encodeURIComponent(proposalId)}/refresh`,
-    { method: 'POST' }
+    { method: 'POST', body: JSON.stringify(await withActiveNetwork({})) }
   )
   return normalizeMultisigProposalDetail(raw)
 }

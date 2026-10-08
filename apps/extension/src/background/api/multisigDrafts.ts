@@ -7,20 +7,35 @@ import type {
   MultisigDraftMemberRequest,
   MultisigDraftPasskeyRegFinishResponse,
   MultisigPredictResponse,
+  Network,
 } from '@latch/types'
 
+import { getActiveNetwork } from '../network/config'
 import { latchFetch } from './client'
 import { unwrapMultisigDraft } from './multisigNormalize'
 import { webauthnBeginBody, webauthnFinishBody } from './webauthn'
+import { withActiveNetwork } from './withActiveNetwork'
+
+/** A draft with no network field was stored before the column existed, on testnet. */
+function draftNetwork(draft: MultisigDraft): Network {
+  return draft.network === 'mainnet' ? 'mainnet' : 'testnet'
+}
 
 export async function createMultisigDraft(): Promise<CreateMultisigDraftResponse> {
-  return await latchFetch<CreateMultisigDraftResponse>('/api/multisig/drafts', { method: 'POST' })
+  return await latchFetch<CreateMultisigDraftResponse>('/api/multisig/drafts', {
+    method: 'POST',
+    body: JSON.stringify(await withActiveNetwork({})),
+  })
 }
 
 export async function getActiveMultisigDraft(): Promise<GetActiveMultisigDraftResponse> {
-  return await latchFetch<GetActiveMultisigDraftResponse>('/api/multisig/drafts?active=1', {
+  const res = await latchFetch<GetActiveMultisigDraftResponse>('/api/multisig/drafts?active=1', {
     method: 'GET',
   })
+  if (res.draft && draftNetwork(res.draft) !== (await getActiveNetwork())) {
+    return { ...res, draft: null }
+  }
+  return res
 }
 
 export async function getMultisigDraft(draftId: string): Promise<MultisigDraft> {

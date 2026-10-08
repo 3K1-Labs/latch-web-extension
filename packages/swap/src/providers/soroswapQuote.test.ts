@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   normalizePoolHashForBuild,
   normalizeSoroswapQuoteForBuild,
+  parseSoroswapDistribution,
   poolHashToBytes,
 } from './soroswapQuote'
 
@@ -21,6 +22,33 @@ describe('poolHashToBytes / normalizePoolHashForBuild', () => {
   it('leaves valid Base64 pool hashes unchanged via normalize', () => {
     const b64 = 'suAvz8pslvitXL2E53hKd3s22clqJFlALE9FhGKqt/A='
     expect(normalizePoolHashForBuild(b64)).toBe(b64)
+  })
+})
+
+describe('parseSoroswapDistribution aqua hashes', () => {
+  const tokenA = 'CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA'
+  const tokenB = 'CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75'
+  const hash = 'b2e02fcfca6c96f8ad5cbd84e7784a777b36d9c96a2459402c4f458462aab7f0'
+
+  it('accepts pool_hashes for an aqua hop', () => {
+    const entries = parseSoroswapDistribution({
+      rawTrade: {
+        distribution: [
+          { protocol_id: 'aqua', path: [tokenA, tokenB], parts: 1, pool_hashes: [hash] },
+        ],
+      },
+    })
+    expect(entries[0].poolHashes).toEqual([hash])
+  })
+
+  it('rejects aqua when the hash count does not match the hops', () => {
+    expect(() =>
+      parseSoroswapDistribution({
+        rawTrade: {
+          distribution: [{ protocol_id: 'aqua', path: [tokenA, tokenB], parts: 1 }],
+        },
+      })
+    ).toThrow(/missing pool hashes \(expected 1/)
   })
 })
 

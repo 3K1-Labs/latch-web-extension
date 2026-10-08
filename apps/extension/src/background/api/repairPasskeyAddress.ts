@@ -82,6 +82,7 @@ export async function repairDisplacedPasskeySmartAccountAddresses(): Promise<{
   repairedCount: number
 }> {
   const map = await readDisplacementMap()
+  let mapChanged = false
   for (const [factory, funded] of Object.entries(FACTORY_TO_FUNDED)) {
     if (!map[`factory:${factory}`]) {
       map[`factory:${factory}`] = {
@@ -89,9 +90,10 @@ export async function repairDisplacedPasskeySmartAccountAddresses(): Promise<{
         factoryAddress: factory,
         updatedAtMs: 0,
       }
+      mapChanged = true
     }
   }
-  await writeDisplacementMap(map)
+  if (mapChanged) await writeDisplacementMap(map)
 
   let repairedCount = 0
   const networks: Network[] = ['testnet', 'mainnet']

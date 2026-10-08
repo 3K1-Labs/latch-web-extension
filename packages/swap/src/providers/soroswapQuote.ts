@@ -103,15 +103,18 @@ export function parseSoroswapDistribution(
     if (!Number.isFinite(parts) || parts <= 0) {
       throw new Error(`Soroswap distribution entry ${index} has invalid parts`)
     }
-    const hashes = entry.poolHashes
-    const poolHashes = Array.isArray(hashes)
-      ? hashes.map((h) => {
-          if (typeof h !== 'string') {
-            throw new Error(`Invalid poolHashes string: ${String(h)}`)
-          }
-          return h
-        })
-      : undefined
+    const poolHashes = readPoolHashList(entry)
+    const hops = (path as string[]).length - 1
+    if (protocolId === 'aqua' || protocolId === 'aquarius') {
+      if (!poolHashes || poolHashes.length !== hops) {
+        throw new Error(
+          `Soroswap ${protocolId} route is missing pool hashes (expected ${hops} for ${hops} hop${hops === 1 ? '' : 's'}).`
+        )
+      }
+      for (const hash of poolHashes) {
+        poolHashToBytes(hash)
+      }
+    }
 
     return {
       protocolId,
@@ -120,6 +123,21 @@ export function parseSoroswapDistribution(
       poolHashes,
     }
   })
+}
+
+/** First present hash array. Aquarius quotes use poolHashes, pool_hashes, or bytes. */
+function readPoolHashList(entry: DistributionLike): string[] | undefined {
+  const candidates = [entry.poolHashes, entry.pool_hashes, entry.bytes]
+  for (const raw of candidates) {
+    if (!Array.isArray(raw)) continue
+    return raw.map((h) => {
+      if (typeof h !== 'string') {
+        throw new Error(`Invalid poolHashes string: ${String(h)}`)
+      }
+      return h
+    })
+  }
+  return undefined
 }
 
 /** Soroswap aggregator Protocol enum (#[repr(u32)]). */

@@ -2,6 +2,10 @@ import { SOROSWAP_API_BASE, SOROSWAP_CONFIG } from '../constants'
 import { applySlippageMin, QUOTE_TTL_MS } from '../amounts'
 import type { SoroswapBuildPayload, SwapProvider, SwapQuote, SwapQuoteRequest } from '../types'
 import { buildSoroswapAggregatorUnsignedTx } from './soroswapBuild'
+import { parseSoroswapDistribution } from './soroswapQuote'
+
+const PROTOCOLS_WITH_AQUA = ['soroswap', 'phoenix', 'aqua'] as const
+const PROTOCOLS_WITHOUT_AQUA = ['soroswap', 'phoenix'] as const
 
 type SoroswapQuoteResponse = {
   amountIn?: string | number
@@ -77,19 +81,44 @@ function parseSoroswapQuote(data: SoroswapQuoteResponse, req: SwapQuoteRequest):
   }
 }
 
+function isMissingAquaPoolHashes(err: unknown): boolean {
+  return err instanceof Error && err.message.includes('missing pool hashes')
+}
+
+function quoteBody(req: SwapQuoteRequest, protocols: readonly string[]): Record<string, unknown> {
+  return {
+    assetIn: req.assetIn.contractId,
+    assetOut: req.assetOut.contractId,
+    amount: req.amountInRaw,
+    tradeType: 'EXACT_IN',
+    protocols,
+    // API default is 50; send explicitly so otherAmountThreshold matches UI slippage.
+    slippageBps: req.slippageBps,
+  }
+}
+
 export const soroswapProvider: SwapProvider = {
   id: 'soroswap',
   name: 'Soroswap',
   async quote(req: SwapQuoteRequest): Promise<SwapQuote> {
-    const data = await soroswapPost<SoroswapQuoteResponse>('/quote', req.network, {
-      assetIn: req.assetIn.contractId,
-      assetOut: req.assetOut.contractId,
-      amount: req.amountInRaw,
-      tradeType: 'EXACT_IN',
-      protocols: ['soroswap', 'phoenix', 'aqua'],
-      // API default is 50; send explicitly so otherAmountThreshold matches UI slippage.
-      slippageBps: req.slippageBps,
-    })
+    let data = await soroswapPost<SoroswapQuoteResponse>(
+      '/quote',
+      req.network,
+      quoteBody(req, PROTOCOLS_WITH_AQUA)
+    )
+    try {
+      parseSoroswapDistribution(data)
+    } catch (err) {
+      if (!isMissingAquaPoolHashes(err)) throw err
+      // Aquarius hop had no usable pool hashes. Re-quote without aqua so the
+      // returned amountOut matches the route we can actually build.
+      data = await soroswapPost<SoroswapQuoteResponse>(
+        '/quote',
+        req.network,
+        quoteBody(req, PROTOCOLS_WITHOUT_AQUA)
+      )
+      parseSoroswapDistribution(data)
+    }
     return parseSoroswapQuote(data, req)
   },
   async buildUnsignedTx(

@@ -1,15 +1,21 @@
-import type { BackendAccountsResponse } from '@latch/types'
+import type { BackendAccountsResponse, Network } from '@latch/types'
 
+import { getActiveNetwork } from '../network/config'
 import { latchFetch } from './client'
 
 export async function getBackendAccounts(opts?: {
   credentialId?: string
+  network?: Network
 }): Promise<BackendAccountsResponse> {
-  const qs =
-    opts?.credentialId && opts.credentialId.trim() !== ''
-      ? `?credentialId=${encodeURIComponent(opts.credentialId.trim())}`
-      : ''
-  return await latchFetch<BackendAccountsResponse>(`/api/accounts${qs}`, { method: 'GET' })
+  const explicit = opts?.network
+  const network: Network =
+    explicit === 'mainnet' || explicit === 'testnet' ? explicit : await getActiveNetwork()
+  const params = new URLSearchParams({ network })
+  const credentialId = opts?.credentialId?.trim()
+  if (credentialId) params.set('credentialId', credentialId)
+  return await latchFetch<BackendAccountsResponse>(`/api/accounts?${params.toString()}`, {
+    method: 'GET',
+  })
 }
 
 export async function setBackendActiveAccount(args: {

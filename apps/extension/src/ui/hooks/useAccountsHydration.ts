@@ -38,9 +38,10 @@ export function useAccountsHydration({
   const [accountsHydrated, setAccountsHydrated] = useState(false)
   /** True only after GET_ACCOUNTS returned successfully (empty or not). False on timeout/error — never treat that as "needs setup". */
   const [accountsLoadSucceeded, setAccountsLoadSucceeded] = useState(false)
+  /** Set when GET_ACCOUNTS fails or the background never answers. Stops the infinite loader. */
+  const [accountsLoadError, setAccountsLoadError] = useState<string | null>(null)
   const onboardingTabOpenedRef = useRef(false)
-  /** Log hydrate retries once per failure streak so the 2.5s interval does not spam. */
-  const accountsRetryLoggedRef = useRef(false)
+  const accountsLoadGenRef = useRef(0)
   const [accounts, setAccounts] = useState<StoredAccount[]>([])
   const [activeAccountId, setActiveAccountId] = useState<string | undefined>(undefined)
   const [activeNetwork, setActiveNetwork] = useState<'testnet' | 'mainnet'>('testnet')
@@ -68,6 +69,64 @@ export function useAccountsHydration({
     [activeAccount, activeAccountHasMnemonicVault, activeAccountMnemonicSignerLoaded]
   )
 
+  const applyLoadedAccounts = useCallback(
+    (data: GetAccountsResponse) => {
+      setAccounts(data.accounts)
+      setActiveAccountId(data.activeAccountId)
+      setActiveAccountHasMnemonicVault(Boolean(data.activeAccountHasMnemonicVault))
+      setActiveAccountMnemonicSignerLoaded(Boolean(data.activeAccountMnemonicSignerLoaded))
+      setAccountsLoadSucceeded(true)
+      setAccountsLoadError(null)
+      if (data.accounts.length > 0) {
+        const locked = needsMnemonicUnlockFromAccounts(
+          data.accounts,
+          data.activeAccountId,
+          data.activeAccountHasMnemonicVault,
+          data.activeAccountMnemonicSignerLoaded
+        )
+        setRoute((prev) =>
+          prev === 'joinMultisig'
+            ? prev
+            : isOnboardingOnlyRoute(prev)
+              ? resolveMainRoute({ needsMnemonicUnlock: locked })
+              : resolveMainRoute({
+                  needsMnemonicUnlock: locked,
+                  preferred: ROUTES_GATED_BY_MNEMONIC_UNLOCK.includes(prev) ? prev : prev,
+                })
+        )
+      }
+    },
+    [setRoute]
+  )
+
+  const loadAccountsFromBackground = useCallback(async () => {
+    const gen = ++accountsLoadGenRef.current
+    setAccountsLoadError(null)
+    try {
+      const res = await sendToBackground<undefined, GetAccountsResponse>(
+        {
+          type: 'GET_ACCOUNTS',
+          payload: undefined,
+        },
+        12_000
+      )
+      if (gen !== accountsLoadGenRef.current) return
+      if (!res.ok || !res.data) {
+        setAccountsLoadSucceeded(false)
+        setAccountsLoadError('Could not load your accounts.')
+        return
+      }
+      applyLoadedAccounts(res.data)
+    } catch (e) {
+      if (gen !== accountsLoadGenRef.current) return
+      setAccountsLoadSucceeded(false)
+      setAccountsLoadError('Could not reach the Latch background. Try again.')
+      logLatchError('hydrate:accounts', e)
+    } finally {
+      if (gen === accountsLoadGenRef.current) setAccountsHydrated(true)
+    }
+  }, [applyLoadedAccounts])
+
   useEffect(() => {
     void sendToBackground<undefined, GetSetupStateResponse>({
       type: 'GET_SETUP_STATE',
@@ -83,48 +142,8 @@ export function useAccountsHydration({
     let cancelled = false
     void (async () => {
       // Load accounts first so we never flash "Set up Latch" while the SW is still waking.
-      // Network is independent and can fill in after.
-      try {
-        const res = await sendToBackground<undefined, GetAccountsResponse>({
-          type: 'GET_ACCOUNTS',
-          payload: undefined,
-        })
-        if (cancelled) return
-        if (!res.ok || !res.data) {
-          setAccountsLoadSucceeded(false)
-          return
-        }
-        setAccounts(res.data.accounts)
-        setActiveAccountId(res.data.activeAccountId)
-        setActiveAccountHasMnemonicVault(Boolean(res.data.activeAccountHasMnemonicVault))
-        setActiveAccountMnemonicSignerLoaded(Boolean(res.data.activeAccountMnemonicSignerLoaded))
-        setAccountsLoadSucceeded(true)
-        if (res.data.accounts.length > 0) {
-          const locked = needsMnemonicUnlockFromAccounts(
-            res.data.accounts,
-            res.data.activeAccountId,
-            res.data.activeAccountHasMnemonicVault,
-            res.data.activeAccountMnemonicSignerLoaded
-          )
-          setRoute((prev) =>
-            prev === 'joinMultisig'
-              ? prev
-              : isOnboardingOnlyRoute(prev)
-                ? resolveMainRoute({ needsMnemonicUnlock: locked })
-                : resolveMainRoute({
-                    needsMnemonicUnlock: locked,
-                    preferred: ROUTES_GATED_BY_MNEMONIC_UNLOCK.includes(prev) ? prev : prev,
-                  })
-          )
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setAccountsLoadSucceeded(false)
-          logLatchError('hydrate:accounts', e)
-        }
-      } finally {
-        if (!cancelled) setAccountsHydrated(true)
-      }
+      await loadAccountsFromBackground()
+      if (cancelled) return
 
       try {
         const netRes = await sendToBackground<
@@ -143,69 +162,14 @@ export function useAccountsHydration({
           )
         }
       } catch (e) {
-        // keep defaults
         logLatchError('hydrate:network', e)
       }
     })()
 
-    // Safety: never leave the shell stuck if the background SW is unresponsive.
-    // Do NOT mark accountsLoadSucceeded — that would falsely open "Set up Latch".
-    const hydrateWatchdog = window.setTimeout(() => {
-      setAccountsHydrated(true)
-    }, 8_000)
-
     return () => {
       cancelled = true
-      window.clearTimeout(hydrateWatchdog)
     }
-  }, [])
-
-  // Retry GET_ACCOUNTS when the first attempt failed / timed out (keep Latch loader, never "Set up Latch").
-  useEffect(() => {
-    if (!accountsHydrated || accountsLoadSucceeded || accounts.length > 0) return
-    accountsRetryLoggedRef.current = false
-    let cancelled = false
-    const attempt = async () => {
-      try {
-        const res = await sendToBackground<undefined, GetAccountsResponse>({
-          type: 'GET_ACCOUNTS',
-          payload: undefined,
-        })
-        if (cancelled || !res.ok || !res.data) return
-        accountsRetryLoggedRef.current = false
-        setAccounts(res.data.accounts)
-        setActiveAccountId(res.data.activeAccountId)
-        setActiveAccountHasMnemonicVault(Boolean(res.data.activeAccountHasMnemonicVault))
-        setActiveAccountMnemonicSignerLoaded(Boolean(res.data.activeAccountMnemonicSignerLoaded))
-        setAccountsLoadSucceeded(true)
-        if (res.data.accounts.length > 0) {
-          const locked = needsMnemonicUnlockFromAccounts(
-            res.data.accounts,
-            res.data.activeAccountId,
-            res.data.activeAccountHasMnemonicVault,
-            res.data.activeAccountMnemonicSignerLoaded
-          )
-          setRoute((prev) =>
-            prev === 'joinMultisig'
-              ? prev
-              : resolveMainRoute({ needsMnemonicUnlock: locked, preferred: prev })
-          )
-        }
-      } catch (e) {
-        // keep retrying — log once per streak so the interval does not spam
-        if (!accountsRetryLoggedRef.current) {
-          accountsRetryLoggedRef.current = true
-          logLatchError('hydrate:accounts-retry', e)
-        }
-      }
-    }
-    void attempt()
-    const t = window.setInterval(() => void attempt(), 2_500)
-    return () => {
-      cancelled = true
-      window.clearInterval(t)
-    }
-  }, [accountsHydrated, accountsLoadSucceeded, accounts.length])
+  }, [loadAccountsFromBackground])
 
   useEffect(() => {
     if (!accountsHydrated) return
@@ -292,15 +256,17 @@ export function useAccountsHydration({
   }, [])
 
   useEffect(() => {
-    if (!accountsHydrated) return
+    if (!accountsLoadSucceeded) return
     void syncMultisigAccounts()
-  }, [accountsHydrated, route, syncMultisigAccounts])
+  }, [accountsLoadSucceeded, route, syncMultisigAccounts])
 
   return {
     setupState,
     setSetupState,
     accountsHydrated,
     accountsLoadSucceeded,
+    accountsLoadError,
+    retryLoadAccounts: loadAccountsFromBackground,
     onboardingTabOpenedRef,
     accounts,
     activeAccountId,
