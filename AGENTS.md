@@ -112,6 +112,16 @@ packages/
 - Don’t scatter ad-hoc `fetch()` calls across UI components; route them through background handlers.
 - Don’t store secrets/tokens in `chrome.storage` from the UI; secrets live only in the vault and are accessed only in background.
 
+### Mainnet data plane (agreed direction)
+
+The target is that clients talk only to latch-api for chain data. Today the background still calls RPC directly (balances, history, swaps, multisig signer reads, simulation) and Horizon (trustlines, G-address existence). Those reads move server-side as the items below land. Don't add new direct chain reads that this list moves server-side.
+
+- **RPC:** the paid mainnet provider lives on latch-api and latch-relayer only. Never put a provider key in `PLASMO_PUBLIC_*`: anything in a client build is public. The extension stays on the public endpoint until its reads move server-side. Compare providers with `node scripts/rpc-probe.mjs <url>`.
+- **Prices:** key every price by **contract ID** (XLM = native SAC ID, classic assets = their SAC ID, SEP-41 = the contract). Never look up or compute USD by token code: a spoofed `USDC` would get the real price. Unpriced and hidden tokens never count toward the total.
+- **History and token list:** come from a latch-api event worker that stores `transfer` / `mint` / `burn` / `clawback` events for registered wallets. Client-side history from Horizon + `getEvents` is retired once that route exists for the cookie-session API. Tokens nobody curated, added or sent go under "Hidden tokens".
+- **Submission:** latch-api validates and simulates; latch-relayer's gasless service submits through channel accounts with a fee-bump funder. The user pays the fee through FeeForwarder in XLM, or in USDC if they hold no XLM; Latch sponsors only a new wallet's setup transactions (deployment, setup-send-rules, setup-swap-rules), capped per wallet. Any other transaction from a wallet with neither XLM nor USDC is refused with "add XLM or USDC to pay network fees". Every wallet transaction is wrapped in `forward()`, so dApp/send/swap review must show the inner call and the maximum fee. "Send max" must leave room for the fee.
+- **Horizon** stays only for linked G-address trustlines and the on-ramp pool.
+
 ## Refined UI + UX Patterns (extension surfaces)
 
 ### Onboarding flow (popup and side panel)
