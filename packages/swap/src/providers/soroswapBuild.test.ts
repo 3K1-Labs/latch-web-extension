@@ -37,6 +37,12 @@ describe('poolHashToBytes', () => {
   })
 })
 
+const TOKEN_A = 'CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA'
+const TOKEN_B = 'CCCRWH6Q3FNP3I2I57BDLM5AFAT7O6OF6GKQOC6SSJNDAVRZ57SPHGU2'
+const TOKEN_C = 'CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75'
+const HASH_A = 'b2e02fcfca6c96f8ad5cbd84e7784a777b36d9c96a2459402c4f458462aab7f0'
+const HASH_B = '24f9c991c44acf33fff5f44031c40385d235dc212d7379e824ba3db1c35371f3'
+
 describe('parseSoroswapDistribution', () => {
   it('parses aqua distribution from a quote payload', () => {
     const entries = parseSoroswapDistribution({
@@ -44,16 +50,9 @@ describe('parseSoroswapDistribution', () => {
         distribution: [
           {
             protocol_id: 'aqua',
-            path: [
-              'CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA',
-              'CCCRWH6Q3FNP3I2I57BDLM5AFAT7O6OF6GKQOC6SSJNDAVRZ57SPHGU2',
-              'CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75',
-            ],
+            path: [TOKEN_A, TOKEN_B, TOKEN_C],
             parts: 10,
-            poolHashes: [
-              'b2e02fcfca6c96f8ad5cbd84e7784a777b36d9c96a2459402c4f458462aab7f0',
-              '24f9c991c44acf33fff5f44031c40385d235dc212d7379e824ba3db1c35371f3',
-            ],
+            poolHashes: [HASH_A, HASH_B],
           },
         ],
       },
@@ -62,6 +61,55 @@ describe('parseSoroswapDistribution', () => {
     expect(entries[0].protocolId).toBe('aqua')
     expect(entries[0].parts).toBe(10)
     expect(entries[0].poolHashes).toHaveLength(2)
+  })
+
+  it('reads aqua hashes from pool_hashes and from bytes', () => {
+    const fromSnake = parseSoroswapDistribution({
+      rawTrade: {
+        distribution: [
+          { protocol_id: 'aqua', path: [TOKEN_A, TOKEN_B], parts: 10, pool_hashes: [HASH_A] },
+        ],
+      },
+    })
+    const fromBytes = parseSoroswapDistribution({
+      rawTrade: {
+        distribution: [
+          { protocol_id: 'aquarius', path: [TOKEN_A, TOKEN_B], parts: 4, bytes: [HASH_A] },
+        ],
+      },
+    })
+    expect(fromSnake[0].poolHashes).toEqual([HASH_A])
+    expect(fromBytes[0].poolHashes).toEqual([HASH_A])
+
+    const scVal = dexDistributionEntryToScVal(fromSnake[0])
+    const bytesEntry = scVal.map()!.find((e) => e.key().sym().toString() === 'bytes')!
+    expect(bytesEntry.val().vec()).toHaveLength(1)
+    expect(Buffer.from(bytesEntry.val().vec()![0].bytes()).toString('hex')).toBe(HASH_A)
+  })
+
+  it('rejects an aqua route with a missing or short hash list before XDR build', () => {
+    expect(() =>
+      parseSoroswapDistribution({
+        rawTrade: {
+          distribution: [{ protocol_id: 'aqua', path: [TOKEN_A, TOKEN_B, TOKEN_C], parts: 10 }],
+        },
+      })
+    ).toThrow(/missing pool hashes/)
+
+    expect(() =>
+      parseSoroswapDistribution({
+        rawTrade: {
+          distribution: [
+            {
+              protocol_id: 'aqua',
+              path: [TOKEN_A, TOKEN_B, TOKEN_C],
+              parts: 10,
+              poolHashes: [HASH_A],
+            },
+          ],
+        },
+      })
+    ).toThrow(/expected 2/)
   })
 })
 

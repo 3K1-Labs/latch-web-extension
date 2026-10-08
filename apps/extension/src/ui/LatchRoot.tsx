@@ -93,6 +93,8 @@ export function LatchRoot({ surface }: { surface: Surface }) {
     setSetupState,
     accountsHydrated,
     accountsLoadSucceeded,
+    accountsLoadError,
+    retryLoadAccounts,
     onboardingTabOpenedRef,
     accounts,
     activeAccountId,
@@ -294,7 +296,9 @@ export function LatchRoot({ surface }: { surface: Surface }) {
   // Home shell waits on portfolio only. History (Horizon + SAC) can be slow; gating
   // the whole home UI on it left a stuck "Loading..." overlay after the heavier fetch.
   const showAccountsHydrateOverlay =
-    !loading && (!accountsHydrated || (!accountsLoadSucceeded && accounts.length === 0))
+    !loading &&
+    !accountsLoadError &&
+    (!accountsHydrated || (!accountsLoadSucceeded && accounts.length === 0))
   const showHomeLoadingOverlay =
     !showAccountsHydrateOverlay &&
     (page === 'main' || page === 'settings') &&
@@ -872,6 +876,19 @@ export function LatchRoot({ surface }: { surface: Surface }) {
       {showAccountsHydrateOverlay ? (
         <div className="absolute inset-0 z-40">
           <HomeLoadingOverlay />
+        </div>
+      ) : null}
+
+      {accountsLoadError && accounts.length === 0 ? (
+        <div className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-4 bg-[#121212]/90 px-8 text-center">
+          <p className="text-[16px] font-semibold text-[#fbfbfb]">{accountsLoadError}</p>
+          <button
+            type="button"
+            className="flex h-12 items-center justify-center rounded-full bg-[#FFAD00] px-6 text-[15px] font-bold text-black"
+            onClick={() => void retryLoadAccounts()}
+          >
+            Try again
+          </button>
         </div>
       ) : null}
 

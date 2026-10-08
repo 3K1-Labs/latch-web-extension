@@ -5,10 +5,35 @@ import type {
   SerializableError,
 } from '@latch/types'
 
+/**
+ * Upper bound so a service worker that never answers cannot pin the UI forever.
+ * Must stay long enough for a passkey ceremony and a mainnet deploy (both run
+ * inside one message). Cold-start reads pass a shorter timeout explicitly.
+ */
+const BACKGROUND_MESSAGE_TIMEOUT_MS = 120_000
+
 export async function sendToBackground<TPayload, TData>(
-  message: BackgroundMessage<TPayload>
+  message: BackgroundMessage<TPayload>,
+  timeoutMs: number = BACKGROUND_MESSAGE_TIMEOUT_MS
 ): Promise<BackgroundResponse<TData>> {
-  return (await chrome.runtime.sendMessage(message)) as BackgroundResponse<TData>
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(Object.assign(new Error('Background did not respond'), { code: 'timeout' }))
+    }, timeoutMs)
+  })
+
+  try {
+    const res = (await Promise.race([chrome.runtime.sendMessage(message), timeout])) as
+      | BackgroundResponse<TData>
+      | undefined
+    if (res == null) {
+      throw Object.assign(new Error('Extension background did not respond'), { code: 'timeout' })
+    }
+    return res
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
 }
 
 /** Detach an in-flight background waiter without aborting shared Horizon/RPC work. */

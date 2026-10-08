@@ -30,10 +30,15 @@ export async function openPasskeyBridgeAndWait(args: {
       timeoutMs?: number
     },
     unknown
-  >({
-    type: 'RUN_PASSKEY_BRIDGE',
-    payload: args,
-  })
+  >(
+    {
+      type: 'RUN_PASSKEY_BRIDGE',
+      payload: args,
+    },
+    // Match the background bridge waiter. A short timeout abandons the ceremony
+    // before registration/authentication finish is ever sent.
+    args.timeoutMs ?? 120_000
+  )
   if (!res.ok) throw new Error(friendlyError(res.error) || 'Passkey bridge failed.')
   return res.data
 }

@@ -116,6 +116,8 @@ async function passkeyFinish<TRes>(
   try {
     const { res, data } = await latchFetchAbsoluteWithResponse<TRes>(`${baseUrl}${path}`, {
       method: 'POST',
+      // Mainnet registration finish deploys the account. Render can take longer than the default 20s.
+      timeoutMs: 90_000,
       body: await webauthnFinishBody(req, kind),
       headers: {
         ...chromeExtensionHeaders(),

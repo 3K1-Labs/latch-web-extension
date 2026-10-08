@@ -127,10 +127,13 @@ export function usePortfolioAndHistory({
         const res = await sendToBackground<
           GetSmartAccountTransactionsRequest,
           GetSmartAccountTransactionsResponse
-        >({
-          type: 'GET_SMART_ACCOUNT_TRANSACTIONS',
-          payload: { accountId: acc.id, force: opts?.force === true, requestId },
-        })
+        >(
+          {
+            type: 'GET_SMART_ACCOUNT_TRANSACTIONS',
+            payload: { accountId: acc.id, force: opts?.force === true, requestId },
+          },
+          20_000
+        )
         if (
           !shouldApplyBackgroundResult({
             currentId: historyRequestIdRef.current,
@@ -183,10 +186,13 @@ export function usePortfolioAndHistory({
       const res = await sendToBackground<
         GetSmartAccountBalancesRequest,
         GetSmartAccountBalancesResponse
-      >({
-        type: 'GET_SMART_ACCOUNT_BALANCES',
-        payload: { accountId: acc.id, requestId },
-      })
+      >(
+        {
+          type: 'GET_SMART_ACCOUNT_BALANCES',
+          payload: { accountId: acc.id, requestId },
+        },
+        20_000
+      )
       if (
         !shouldApplyBackgroundResult({
           currentId: portfolioRequestIdRef.current,

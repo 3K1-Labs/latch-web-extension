@@ -53,6 +53,23 @@ import {
   setActiveAccount,
 } from '../storage'
 
+/** Best-effort. Never awaited by GET_ACCOUNTS. */
+function repairDisplacedPasskeyAddressesAfterAccountsRead(): void {
+  void (async () => {
+    try {
+      const { repairDisplacedPasskeySmartAccountAddresses } =
+        await import('../api/repairPasskeyAddress')
+      const repaired = await repairDisplacedPasskeySmartAccountAddresses()
+      if (repaired.repairedCount > 0) {
+        const { clearSmartAccountBalancesMemoryCache } = await import('../smartAccountBalances')
+        clearSmartAccountBalancesMemoryCache()
+      }
+    } catch {
+      // best-effort repair only
+    }
+  })()
+}
+
 /** Returns true if the message type was handled. */
 export async function tryHandleAccountsMessage(
   message: BackgroundMessage,
@@ -85,19 +102,6 @@ export async function tryHandleAccountsMessage(
 
     case 'GET_ACCOUNTS': {
       await ensureSetupStateMatchesAccounts()
-      let repairedCount = 0
-      try {
-        const { repairDisplacedPasskeySmartAccountAddresses } =
-          await import('../api/repairPasskeyAddress')
-        const repaired = await repairDisplacedPasskeySmartAccountAddresses()
-        repairedCount = repaired.repairedCount
-        if (repairedCount > 0) {
-          const { clearSmartAccountBalancesMemoryCache } = await import('../smartAccountBalances')
-          clearSmartAccountBalancesMemoryCache()
-        }
-      } catch {
-        // best-effort repair only
-      }
       const data = await getAccounts()
       let activeAccountHasMnemonicVault: boolean | undefined
       let activeAccountMnemonicSignerLoaded: boolean | undefined
@@ -114,7 +118,10 @@ export async function tryHandleAccountsMessage(
         activeAccountHasMnemonicVault,
         activeAccountMnemonicSignerLoaded,
       }
+      // Respond before address repair. Repair writes storage and must not keep
+      // the shell on Loading... or delay the first balance/history request.
       sendResponse(ok(payload))
+      void repairDisplacedPasskeyAddressesAfterAccountsRead()
       return true
     }
 

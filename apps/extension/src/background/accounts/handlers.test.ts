@@ -51,6 +51,11 @@ const deleteAccount = vi.fn()
 const clearSession = vi.fn()
 const getAccounts = vi.fn()
 const removeRemovedAccountAddress = vi.fn()
+vi.mock('../api/repairPasskeyAddress', () => ({
+  repairDisplacedPasskeySmartAccountAddresses: () => new Promise(() => {}),
+  recordPasskeyAddressDisplacement: vi.fn(),
+}))
+
 vi.mock('../storage', () => ({
   createAccount: (...a: unknown[]) => createAccount(...a),
   deleteAccount: (...a: unknown[]) => deleteAccount(...a),
@@ -66,6 +71,28 @@ import { tryHandleAccountsMessage } from './handlers'
 const ok = <T>(data?: T) => ({ ok: true as const, data })
 
 describe('tryHandleAccountsMessage', () => {
+  it('answers GET_ACCOUNTS without waiting for address repair', async () => {
+    getAccounts.mockResolvedValue({
+      accounts: [{ id: 'acct-1', mode: 'passkey', smartAccountAddress: 'C1', createdAt: 1 }],
+      activeAccountId: 'acct-1',
+    })
+    const sendResponse = vi.fn()
+    const handled = await tryHandleAccountsMessage(
+      { type: 'GET_ACCOUNTS', payload: undefined },
+      sendResponse,
+      ok
+    )
+    expect(handled).toBe(true)
+    expect(sendResponse).toHaveBeenCalledWith(
+      ok({
+        accounts: [{ id: 'acct-1', mode: 'passkey', smartAccountAddress: 'C1', createdAt: 1 }],
+        activeAccountId: 'acct-1',
+        activeAccountHasMnemonicVault: undefined,
+        activeAccountMnemonicSignerLoaded: undefined,
+      })
+    )
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
     getAccounts.mockResolvedValue({ accounts: [], activeAccountId: undefined })

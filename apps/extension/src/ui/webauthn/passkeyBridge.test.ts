@@ -29,13 +29,16 @@ describe('passkeyBridge UI client', () => {
         optionsJSON: { challenge: 'abc' },
       })
     ).resolves.toEqual({ id: 'cred' })
-    expect(sendToBackground).toHaveBeenCalledWith({
-      type: 'RUN_PASSKEY_BRIDGE',
-      payload: {
-        mode: 'authentication',
-        optionsJSON: { challenge: 'abc' },
+    expect(sendToBackground).toHaveBeenCalledWith(
+      {
+        type: 'RUN_PASSKEY_BRIDGE',
+        payload: {
+          mode: 'authentication',
+          optionsJSON: { challenge: 'abc' },
+        },
       },
-    })
+      120_000
+    )
   })
 
   it('openPasskeyBridgeAndWait throws on background error', async () => {
