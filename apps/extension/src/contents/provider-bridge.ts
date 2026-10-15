@@ -64,9 +64,22 @@ function postProviderEvent(message: LatchProviderEventMessage): void {
 
 async function emitActiveAccountFromStorage(): Promise<void> {
   try {
-    const stored = await chrome.storage.local.get([ACCOUNTS_KEY, ACTIVE_ACCOUNT_ID_KEY])
-    const accounts = (stored[ACCOUNTS_KEY] as StoredAccountRow[] | undefined) ?? []
-    const activeAccountId = stored[ACTIVE_ACCOUNT_ID_KEY] as string | undefined
+    const stored = await chrome.storage.local.get(null)
+    const developerMode = stored['latch.developerMode'] === true
+    const env = developerMode ? 'dev' : 'prod'
+    const networkBucket = developerMode ? 'testnet' : 'mainnet'
+    const accountsByNetwork = stored[`latch.env.${env}.accounts.byNetwork`] as
+      | Partial<Record<Network, StoredAccountRow[]>>
+      | undefined
+    const activeByNetwork = stored[`latch.env.${env}.activeAccountId.byNetwork`] as
+      | Partial<Record<Network, string | undefined>>
+      | undefined
+    let accounts = accountsByNetwork?.[networkBucket] ?? []
+    let activeAccountId = activeByNetwork?.[networkBucket]
+    if (stored['latch.developerMode'] == null && accounts.length === 0) {
+      accounts = (stored[ACCOUNTS_KEY] as StoredAccountRow[] | undefined) ?? []
+      activeAccountId = stored[ACTIVE_ACCOUNT_ID_KEY] as string | undefined
+    }
     const active = accounts.find((a) => a.id === activeAccountId) ?? accounts[0]
     const publicKey = active?.smartAccountAddress?.trim()
     if (!publicKey) return

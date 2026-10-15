@@ -30,15 +30,18 @@ describe('background message routing (smoke)', () => {
   it('self-heals setupState to has_account when accounts already exist', async () => {
     vi.resetModules()
     await chrome.storage.local.set({
-      'latch.accounts': [
-        {
-          id: 'acct-1',
-          mode: 'passkey',
-          smartAccountAddress: 'GABC123',
-          createdAt: 1,
-        },
-      ],
-      'latch.activeAccountId': 'acct-1',
+      'latch.env.storageMigrated': true,
+      'latch.env.prod.accounts.byNetwork': {
+        testnet: [
+          {
+            id: 'acct-1',
+            mode: 'passkey',
+            smartAccountAddress: 'GABC123',
+            createdAt: 1,
+          },
+        ],
+      },
+      'latch.env.prod.activeAccountId.byNetwork': { testnet: 'acct-1' },
     })
 
     await import('./index')

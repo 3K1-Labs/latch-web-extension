@@ -39,9 +39,10 @@ function snapshotUsableAsStaleFallback(s: Snapshot, now: number): boolean {
 }
 
 async function storageKeyForAccount(accountId: string): Promise<string> {
-  // Include network in cache key because the same account id could exist across testnet/mainnet.
   const network = await getActiveNetwork()
-  return `latch.smartAccountBalances.${network}.${accountId}.v1`
+  const flag = await chrome.storage.local.get(['latch.developerMode'])
+  const env = flag['latch.developerMode'] === true ? 'dev' : 'prod'
+  return `latch.env.${env}.smartAccountBalances.${network}.${accountId}.v1`
 }
 
 async function readPersistedSnapshot(accountId: string): Promise<Snapshot | null> {

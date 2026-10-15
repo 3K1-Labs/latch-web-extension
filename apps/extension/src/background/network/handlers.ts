@@ -3,7 +3,7 @@ import type { BackgroundMessage } from '@latch/types'
 import { broadcastActiveAccountChanged, broadcastNetworkChanged } from '../dappProviderEvents'
 import type { OkFn } from '../messageResponse'
 import { applyDeveloperMode } from '../api/developerMode'
-import { getDeveloperMode } from '../storage'
+import { getDeveloperMode, storageKeys } from '../storage'
 import { getNetworkConfig, networkLabelFor, setActiveNetwork } from './config'
 import { clearNetworkScopedMemoryCaches } from './clearCaches'
 
@@ -39,6 +39,19 @@ export async function tryHandleNetworkMessage(
 
     case 'SET_ACTIVE_NETWORK': {
       const req = message.payload as { network: 'testnet' | 'mainnet' }
+      const flag = await chrome.storage.local.get([storageKeys().developerMode])
+      const mode = flag[storageKeys().developerMode]
+      const required = mode === true ? 'testnet' : mode === false ? 'mainnet' : undefined
+      if (required && req.network !== required) {
+        sendResponse({
+          ok: false,
+          error: {
+            code: 'developer_mode_network',
+            message: `Wallet network is ${required} for the active deployment.`,
+          },
+        })
+        return true
+      }
       const network = await setActiveNetwork(req.network)
       clearNetworkScopedMemoryCaches()
       await broadcastNetworkChanged(network)

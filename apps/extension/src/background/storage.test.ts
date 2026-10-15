@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from 'vitest'
+import { describe, expect, it, beforeEach, vi } from 'vitest'
 import {
   clearDappPermissions,
   clearDappOriginDisconnected,
@@ -7,6 +7,7 @@ import {
   createAccount,
   deleteAccount,
   deleteAccountSignerRecord,
+  envStorageKey,
   getAccounts,
   getAccountSignerRecords,
   getAccountsForNetwork,
@@ -19,9 +20,15 @@ import {
   removeRemovedAccountAddress,
   resetAccountsPartitionMigrationForTests,
   setDappPermissions,
+  setDeveloperMode,
   upsertAccountSignerRecord,
 } from './storage'
-import { setActiveNetwork, setCachedActiveNetwork } from './network/config'
+import {
+  clearCachedActiveNetwork,
+  setActiveNetwork,
+  setCachedActiveNetwork,
+} from './network/config'
+import { applyDeveloperMode } from './api/developerMode'
 
 describe('background/storage', () => {
   beforeEach(() => {
@@ -68,50 +75,47 @@ describe('background/storage', () => {
     expect(accounts[0]!.passkeyKeyDataHex).toBe('bb')
   })
 
-  it('migrates flat latch.accounts into testnet bucket and isolates mainnet', async () => {
+  it('migrates un-namespaced accounts into the dev namespace and leaves prod empty', async () => {
     resetAccountsPartitionMigrationForTests()
-    await chrome.storage.local.remove([
-      'latch.accounts',
-      'latch.activeAccountId',
-      'latch.accounts.byNetwork',
-      'latch.activeAccountId.byNetwork',
-      'latch.network',
-      'latch.setupState',
-      'latch.setupState.byNetwork',
-    ])
-    setCachedActiveNetwork('testnet')
+    clearCachedActiveNetwork()
     await chrome.storage.local.set({
-      'latch.accounts': [
-        {
-          id: 'legacy-1',
-          mode: 'passkey',
-          smartAccountAddress: 'CTEST',
-          createdAt: 1,
-        },
-      ],
-      'latch.activeAccountId': 'legacy-1',
+      'latch.accounts.byNetwork': {
+        testnet: [
+          {
+            id: 'legacy-1',
+            mode: 'passkey',
+            smartAccountAddress: 'CTEST',
+            createdAt: 1,
+          },
+        ],
+        mainnet: [
+          {
+            id: 'legacy-main',
+            mode: 'passkey',
+            smartAccountAddress: 'CMAINOLD',
+            createdAt: 2,
+          },
+        ],
+      },
+      'latch.activeAccountId.byNetwork': { testnet: 'legacy-1' },
+      'latch.removedAccounts.byNetwork': { testnet: ['CREMOVED'] },
     })
 
-    const testnet = await getAccounts()
-    expect(testnet.accounts).toHaveLength(1)
-    expect(testnet.accounts[0]!.smartAccountAddress).toBe('CTEST')
+    await setDeveloperMode(false)
+    const prod = await getAccounts()
+    expect(prod.accounts).toHaveLength(0)
+    expect(await getRemovedAccountAddresses()).not.toContain('CREMOVED')
 
-    await setActiveNetwork('mainnet')
-    const mainnet = await getAccounts()
-    expect(mainnet.accounts).toHaveLength(0)
-
-    await createAccount({
-      mode: 'passkey' as any,
-      smartAccountAddress: 'CMAIN',
-      passkeyCredentialId: 'cred-m',
-      passkeyKeyDataHex: 'aabb',
-    })
-    expect((await getAccounts()).accounts).toHaveLength(1)
-    expect((await getAccountsForNetwork('testnet')).accounts).toHaveLength(1)
-    expect((await getAccountsForNetwork('mainnet')).accounts[0]!.smartAccountAddress).toBe('CMAIN')
-
-    await setActiveNetwork('testnet')
-    expect((await getAccounts()).accounts[0]!.smartAccountAddress).toBe('CTEST')
+    await setDeveloperMode(true)
+    clearCachedActiveNetwork()
+    const dev = await getAccounts()
+    expect(dev.accounts.map((a) => a.smartAccountAddress)).toEqual(['CTEST'])
+    expect(await getRemovedAccountAddresses()).toContain('CREMOVED')
+    const stranded = await getAccountsForNetwork('mainnet')
+    expect(stranded.accounts.map((a) => a.smartAccountAddress)).toEqual(['CMAINOLD'])
+    expect(
+      (await chrome.storage.local.get(['latch.accounts.byNetwork']))['latch.accounts.byNetwork']
+    ).toBeUndefined()
   })
 
   it('createAccount does not replace an existing passkey C-address without replaceSmartAccountAddress', async () => {
@@ -422,5 +426,81 @@ describe('background/storage', () => {
 
       expect(await peekNextPasskeySeq()).toBe(5)
     })
+  })
+
+  it('keeps prod accounts and the prod cookie when switching to dev and back', async () => {
+    resetAccountsPartitionMigrationForTests()
+    clearCachedActiveNetwork()
+    await setDeveloperMode(false)
+    await createAccount({
+      mode: 'passkey',
+      smartAccountAddress: 'CPROD',
+      passkeyCredentialId: 'cred-prod',
+      passkeyKeyDataHex: 'aa',
+    })
+    const before = await getAccounts()
+    expect(before.accounts).toHaveLength(1)
+    const prodKey = envStorageKey('prod', 'accounts.byNetwork')
+    const prodBlob = (await chrome.storage.local.get([prodKey]))[prodKey]
+
+    const removed: string[] = []
+    ;(chrome as unknown as { cookies: unknown }).cookies = {
+      async getAll() {
+        return []
+      },
+      async remove(details: { url: string }) {
+        removed.push(details.url)
+      },
+      async set() {},
+      async get() {
+        return undefined
+      },
+    }
+    await chrome.storage.session.set({
+      'latch.webauthn.session.v1': {
+        sid: 'prod-ceremony',
+        baseUrl: 'https://latch-backend.onrender.com',
+      },
+    })
+
+    vi.stubEnv('PLASMO_PUBLIC_LATCH_API_URL', 'https://latch-backend.onrender.com')
+    vi.stubEnv('PLASMO_PUBLIC_LATCH_STAGING_API_URL', 'https://staging.example')
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const network = String(url).includes('staging') ? 'testnet' : 'mainnet'
+        return {
+          ok: true,
+          status: 200,
+          async text() {
+            return JSON.stringify({ status: 'ok', network })
+          },
+        } as Response
+      })
+    )
+
+    await applyDeveloperMode(true)
+    expect((await getAccounts()).accounts).toHaveLength(0)
+    expect((await chrome.storage.local.get([prodKey]))[prodKey]).toEqual(prodBlob)
+    expect(removed.some((url) => url.includes('latch-backend.onrender.com'))).toBe(false)
+    expect(await chrome.storage.session.get(['latch.webauthn.session.v1'])).toEqual({
+      'latch.webauthn.session.v1': undefined,
+    })
+
+    await createAccount({
+      mode: 'passkey',
+      smartAccountAddress: 'CDEV',
+      passkeyCredentialId: 'cred-dev',
+      passkeyKeyDataHex: 'bb',
+    })
+    expect((await getAccounts()).accounts.map((a) => a.smartAccountAddress)).toEqual(['CDEV'])
+
+    await applyDeveloperMode(false)
+    const after = await getAccounts()
+    expect(after.accounts.map((a) => a.smartAccountAddress)).toEqual(['CPROD'])
+    expect(after.activeAccountId).toBe(before.activeAccountId)
+    expect((await chrome.storage.local.get([prodKey]))[prodKey]).toEqual(prodBlob)
+    vi.unstubAllEnvs()
+    vi.unstubAllGlobals()
   })
 })

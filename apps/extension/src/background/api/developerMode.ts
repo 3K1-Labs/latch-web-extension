@@ -1,4 +1,8 @@
 import { setDeveloperMode } from '../storage'
+import { clearCachedActiveNetwork, setActiveNetwork } from '../network/config'
+import { clearNetworkScopedMemoryCaches } from '../network/clearCaches'
+import { broadcastActiveAccountChanged, broadcastNetworkChanged } from '../dappProviderEvents'
+import { clearWebauthnSession } from './webauthnSession'
 import { BackendError } from './client'
 import {
   clearLatchApiSuccess,
@@ -65,6 +69,9 @@ export async function assertDeploymentHealth(
 /**
  * Writes `latch.developerMode` only after `/health` reports the required network.
  * Enable requires testnet (staging). Disable requires mainnet (production).
+ * The public wallet network matches that deployment. The in-flight WebAuthn
+ * session is dropped so a ceremony cookie is not sent to the other host.
+ * Stored `sid` cookies stay on their own host.
  */
 export async function applyDeveloperMode(enabled: boolean): Promise<void> {
   if (enabled) {
@@ -77,6 +84,12 @@ export async function applyDeveloperMode(enabled: boolean): Promise<void> {
     }
     await assertDeploymentHealth(staging, 'testnet')
     await setDeveloperMode(true)
+    clearCachedActiveNetwork()
+    await setActiveNetwork('testnet')
+    clearNetworkScopedMemoryCaches()
+    await clearWebauthnSession()
+    await broadcastNetworkChanged('testnet')
+    await broadcastActiveAccountChanged()
     await noteLatchApiSuccess()
     return
   }
@@ -84,5 +97,11 @@ export async function applyDeveloperMode(enabled: boolean): Promise<void> {
   const production = productionLatchApiBaseUrl()
   await assertDeploymentHealth(production, 'mainnet')
   await setDeveloperMode(false)
+  clearCachedActiveNetwork()
+  await setActiveNetwork('mainnet')
+  clearNetworkScopedMemoryCaches()
+  await clearWebauthnSession()
+  await broadcastNetworkChanged('mainnet')
+  await broadcastActiveAccountChanged()
   await clearLatchApiSuccess()
 }

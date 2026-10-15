@@ -92,9 +92,18 @@ export function setCachedActiveNetwork(network: Network): void {
 }
 
 export async function getActiveNetwork(): Promise<Network> {
+  const res = await chrome.storage.local.get(['latch.developerMode'])
+  if (res['latch.developerMode'] === true) {
+    cachedActiveNetwork = 'testnet'
+    return 'testnet'
+  }
+  if (res['latch.developerMode'] === false) {
+    cachedActiveNetwork = 'mainnet'
+    return 'mainnet'
+  }
   if (cachedActiveNetwork) return cachedActiveNetwork
-  const res = await chrome.storage.local.get([STORAGE_KEY_NETWORK])
-  const stored = res[STORAGE_KEY_NETWORK]
+  const storedRes = await chrome.storage.local.get([STORAGE_KEY_NETWORK])
+  const stored = storedRes[STORAGE_KEY_NETWORK]
   const network: Network =
     stored === 'mainnet' || stored === 'testnet' ? stored : getStellarNetworkFromEnv()
   cachedActiveNetwork = network
