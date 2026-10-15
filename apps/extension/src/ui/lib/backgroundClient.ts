@@ -59,11 +59,12 @@ export function friendlyError(e?: SerializableError): string {
   if (e.code === 'fund_unsupported_mode') {
     return 'Fund via on-ramp is not available for this account type yet.'
   }
-  if (e.code === 'network_mismatch') {
-    return (
-      e.message ||
-      'The Latch API challenge network does not match your active wallet network. Switch network or try again.'
-    )
+  if (
+    e.code === 'deployment_network_mismatch' ||
+    e.code === 'network_mismatch' ||
+    e.code === 'NETWORK_MISMATCH'
+  ) {
+    return 'Latch is pointed at the wrong deployment.'
   }
   if (e.code === 'moonpay_network_mismatch') {
     return (

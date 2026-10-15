@@ -45,12 +45,11 @@ describe('api/multisigDrafts', () => {
     expect(res.draft.id).toBe('draft-1')
     expect(fetchMock).toHaveBeenCalledWith(
       'https://latch-backend.onrender.com/api/multisig/drafts',
-      expect.objectContaining({ method: 'POST', body: JSON.stringify({ network: 'mainnet' }) })
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({}) })
     )
   })
 
-  it('hides an active draft that belongs to the other network', async () => {
-    setCachedActiveNetwork('mainnet')
+  it('keeps an active draft even when the payload still names a network', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => ({
@@ -64,7 +63,7 @@ describe('api/multisigDrafts', () => {
     )
 
     const res = await getActiveMultisigDraft()
-    expect(res.draft).toBeNull()
+    expect(res.draft?.id).toBe('draft-test')
   })
 
   it('POST /api/multisig/drafts/{id}/members uses seed for pasted G-address', async () => {
@@ -193,12 +192,12 @@ describe('api/multisigProposals', () => {
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
-      'https://latch-backend.onrender.com/api/multisig/proposals?account=CABC123&network=mainnet',
+      'https://latch-backend.onrender.com/api/multisig/proposals?account=CABC123',
       expect.objectContaining({ method: 'GET' })
     )
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
-      'https://latch-backend.onrender.com/api/multisig/proposals/prop-1?network=mainnet',
+      'https://latch-backend.onrender.com/api/multisig/proposals/prop-1',
       expect.objectContaining({ method: 'GET' })
     )
   })
@@ -206,7 +205,7 @@ describe('api/multisigProposals', () => {
   it('posts the active network when executing and refreshing a proposal', async () => {
     setCachedActiveNetwork('mainnet')
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
-      expect(JSON.parse(String(init?.body))).toEqual({ network: 'mainnet' })
+      expect(JSON.parse(String(init?.body))).toEqual({})
       return {
         ok: true,
         status: 200,

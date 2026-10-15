@@ -16,7 +16,6 @@ export async function createCosignRequest(
     body: JSON.stringify({
       queue_index: input.queueIndex,
       unsigned_tx_xdr: input.unsignedTxXdr,
-      network: input.network,
       threshold: input.threshold,
     }),
   })

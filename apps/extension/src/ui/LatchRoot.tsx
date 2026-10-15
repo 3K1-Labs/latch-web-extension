@@ -5,7 +5,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   DeleteAccountRequest,
   DeleteAccountResponse,
-  GetSetupStateResponse,
   MultisigProposal,
   SetActiveAccountRequest,
 } from '@latch/types'
@@ -90,7 +89,6 @@ export function LatchRoot({ surface }: { surface: Surface }) {
 
   const {
     setupState,
-    setSetupState,
     accountsHydrated,
     accountsLoadSucceeded,
     accountsLoadError,
@@ -100,9 +98,7 @@ export function LatchRoot({ surface }: { surface: Surface }) {
     activeAccountId,
     setActiveAccountId,
     activeNetwork,
-    setActiveNetwork,
     networkLabel,
-    setNetworkLabel,
     activeAccount,
     activeAccountLabel,
     needsMnemonicUnlock,
@@ -643,34 +639,6 @@ export function LatchRoot({ surface }: { surface: Surface }) {
                           activeAccount?.mode === 'multisig' ? multisigPendingCount : 0
                         }
                         networkLabel={networkLabel}
-                        activeNetwork={activeNetwork}
-                        onChangeNetwork={async (network) => {
-                          const res = await sendToBackground<
-                            { network: 'testnet' | 'mainnet' },
-                            { network: 'testnet' | 'mainnet'; networkLabel: string }
-                          >({
-                            type: 'SET_ACTIVE_NETWORK',
-                            payload: { network },
-                          })
-                          if (!res.ok || !res.data) {
-                            throw new Error(res.error?.message ?? 'Failed to switch network')
-                          }
-                          setActiveNetwork(res.data.network)
-                          setNetworkLabel(
-                            res.data.networkLabel ||
-                              (res.data.network === 'mainnet'
-                                ? 'Stellar Mainnet'
-                                : 'Stellar Testnet')
-                          )
-                          const setupRes = await sendToBackground<undefined, GetSetupStateResponse>(
-                            {
-                              type: 'GET_SETUP_STATE',
-                              payload: undefined,
-                            }
-                          )
-                          if (setupRes.ok && setupRes.data) setSetupState(setupRes.data.setupState)
-                          await refreshAccounts()
-                        }}
                         onClose={() => setPage('main')}
                         onLogout={logout}
                       />

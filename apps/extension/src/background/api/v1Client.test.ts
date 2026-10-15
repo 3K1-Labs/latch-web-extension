@@ -36,7 +36,7 @@ describe('v1FetchForWallet', () => {
   it('retries once on 401 after refreshing the wallet token pair', async () => {
     const store: Record<string, unknown> = {
       [STORAGE_KEY]: {
-        [v1TokenStorageKey('testnet', 'CABC123')]: {
+        [v1TokenStorageKey('mainnet', 'CABC123')]: {
           accessToken: 'stale-access',
           refreshToken: 'refresh-raw',
           expiresAt: Date.now() + 60_000,
@@ -104,7 +104,7 @@ describe('v1FetchForWallet', () => {
   it('clears stored tokens and throws V1_AUTH_REQUIRED when refresh fails', async () => {
     const store: Record<string, unknown> = {
       [STORAGE_KEY]: {
-        [v1TokenStorageKey('testnet', 'CABC123')]: {
+        [v1TokenStorageKey('mainnet', 'CABC123')]: {
           accessToken: 'stale-access',
           refreshToken: 'bad-refresh',
           expiresAt: Date.now() + 60_000,
@@ -144,7 +144,7 @@ describe('v1FetchForWallet', () => {
     } satisfies Partial<BackendError>)
 
     expect(
-      (store[STORAGE_KEY] as Record<string, unknown>)[v1TokenStorageKey('testnet', 'CABC123')]
+      (store[STORAGE_KEY] as Record<string, unknown>)[v1TokenStorageKey('mainnet', 'CABC123')]
     ).toBeUndefined()
   })
 })

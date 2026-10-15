@@ -10,7 +10,7 @@ import { CURATED_PORTFOLIO_ASSETS } from '@latch/stellar'
 import type { SmartAccountBalanceRow, SwapTokenRow } from '@latch/types'
 
 import { fetchCombinedTokenLists, type TokenListItem } from '../assetTokenLists'
-import { getActiveNetwork, getStellarNetworkFromEnv, networkPassphraseFor } from '../network/config'
+import { getActiveNetwork, networkPassphraseFor } from '../network/config'
 import { runGetSmartAccountBalances } from '../smartAccountBalances'
 import { loadSwapProviderRegistry } from './providerRegistry'
 
@@ -315,7 +315,7 @@ export function buildReceiveTokensFromRegistry(
   registry: SwapProviderTokenRegistry,
   listItems: TokenListItem[],
   balanceRows: SmartAccountBalanceRow[],
-  network: 'testnet' | 'mainnet' = getStellarNetworkFromEnv()
+  network: 'testnet' | 'mainnet' = 'mainnet'
 ): SwapTokenRow[] {
   const balanceById = new Map(balanceRows.map((row) => [balanceRowKey(row), row]))
   const listByKey = listItemsByAssetKey(listItems)
@@ -342,7 +342,7 @@ export function buildReceiveTokensFromListsAndBalances(
   listItems: TokenListItem[],
   balanceRows: SmartAccountBalanceRow[],
   networkPassphrase: string,
-  network: 'testnet' | 'mainnet' = getStellarNetworkFromEnv(),
+  network: 'testnet' | 'mainnet' = 'mainnet',
   registry?: SwapProviderTokenRegistry
 ): SwapTokenRow[] {
   if (registry) {

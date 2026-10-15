@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { parseApiError } from './errors'
+import { DEPLOYMENT_NETWORK_MISMATCH, parseApiError } from './errors'
 
 describe('api/errors', () => {
   it('parses webapp flat error shape', () => {
@@ -40,6 +40,20 @@ describe('api/errors', () => {
         },
       })
     ).toEqual({ message: copy, code: 'signer_rule_not_found' })
+  })
+
+  it('maps both deployment mismatch codes to one error', () => {
+    const message = 'Latch is pointed at the wrong deployment.'
+    expect(parseApiError(400, { error: 'wrong host', code: 'network_mismatch' })).toEqual({
+      message,
+      code: DEPLOYMENT_NETWORK_MISMATCH,
+    })
+    expect(
+      parseApiError(400, { error: { code: 'NETWORK_MISMATCH', message: 'wrong host' } })
+    ).toEqual({
+      message,
+      code: DEPLOYMENT_NETWORK_MISMATCH,
+    })
   })
 
   it('falls back when body is empty', () => {

@@ -1,17 +1,13 @@
 import type { MigrationDiscovery } from '@latch/types'
 
-import {
-  getActiveNetwork,
-  peekCachedActiveNetwork,
-  getStellarNetworkFromEnv,
-} from '../network/config'
+import { getActiveNetwork, peekCachedActiveNetwork } from '../network/config'
 
 const TTL_MS = 60_000
 
 const cache = new Map<string, { at: number; value: MigrationDiscovery }>()
 
 function networkForCacheKey(): string {
-  return peekCachedActiveNetwork() ?? getStellarNetworkFromEnv()
+  return peekCachedActiveNetwork() ?? 'mainnet'
 }
 
 function key(accountId: string, gAddress: string) {

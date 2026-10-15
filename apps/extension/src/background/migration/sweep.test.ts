@@ -3,8 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { BackendError } from '../backend'
 import { clearMnemonicSessionKeys, registerMnemonicKeypair } from '../mnemonicSession'
-import { setCachedActiveNetwork } from '../network/config'
-import { createAccount, resetAccountsPartitionMigrationForTests } from '../storage'
+import {
+  createAccount,
+  resetAccountsPartitionMigrationForTests,
+  setDeveloperMode,
+} from '../storage'
 import { clearDiscoveryCache } from './discoveryCache'
 import { runMigrationSweepToken, runMigrationSweepXlm } from './sweep'
 
@@ -55,9 +58,9 @@ function horizonAccount(args: {
 }
 
 describe('migration sweep helpers', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     resetAccountsPartitionMigrationForTests()
-    setCachedActiveNetwork('testnet')
+    await setDeveloperMode(true)
     clearDiscoveryCache()
     clearMnemonicSessionKeys()
     createRpcServer.mockClear()

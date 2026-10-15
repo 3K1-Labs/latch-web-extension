@@ -1,7 +1,6 @@
 import type {
   MultisigAccount,
   MultisigDraft,
-  Network,
   MultisigDraftMember,
   MultisigDraftMeta,
   MultisigPendingInvite,
@@ -19,7 +18,6 @@ import {
   predictMultisigDraftAddress,
   registerMultisigAccount,
 } from '../backend'
-import { getActiveNetwork } from '../network/config'
 import {
   findMemberIdForUser,
   passkeyCredentialIdsFromAccounts,
@@ -559,19 +557,12 @@ async function syncFromCreatorDraftMeta(ctx: SyncContext, meta: MultisigDraftMet
   })
 }
 
-/** Rows written before the network column are testnet deployments. */
-function listedAccountNetwork(remote: MultisigAccount): Network {
-  return remote.network === 'mainnet' ? 'mainnet' : 'testnet'
-}
-
 async function importListedRemoteAccounts(ctx: SyncContext): Promise<void> {
   const listed = normalizeListMultisigAccountsResponse(await listMultisigAccounts())
-  const activeNetwork = await getActiveNetwork()
 
   for (const remote of listed) {
     const addr = remote.smartAccountAddress?.trim()
     if (!addr) continue
-    if (listedAccountNetwork(remote) !== activeNetwork) continue
     if (ctx.removedAddresses.has(addr)) continue
 
     const matchedInvite = matchPendingInviteForRemoteAccount(

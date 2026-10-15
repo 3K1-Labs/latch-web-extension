@@ -31,7 +31,6 @@ vi.mock('../storage', () => ({
   upsertMultisigPendingInvite: vi.fn(),
 }))
 
-import { clearCachedActiveNetwork, setCachedActiveNetwork } from '../network/config'
 import { syncLocalMultisigAccountsFromBackend } from './syncLocalAccounts'
 
 const WALLET = 'CMULTIWALLET'
@@ -59,7 +58,6 @@ const remoteWithMyMember = {
 
 describe('syncLocalMultisigAccountsFromBackend', () => {
   beforeEach(() => {
-    clearCachedActiveNetwork()
     vi.clearAllMocks()
     clearLatchApiSession.mockResolvedValue(undefined)
     getMultisigPendingInvites.mockResolvedValue([])
@@ -142,8 +140,7 @@ describe('syncLocalMultisigAccountsFromBackend', () => {
     expect(createMultisigAccount).not.toHaveBeenCalled()
   })
 
-  it('does not import a testnet wallet while the active network is mainnet', async () => {
-    setCachedActiveNetwork('mainnet')
+  it('imports a listed wallet even when the payload still names a network', async () => {
     getAccounts.mockResolvedValue({ accounts: [localPasskey], activeAccountId: 'p1' })
     listMultisigAccounts.mockResolvedValue({
       accounts: [{ ...remoteWithMyMember, network: 'testnet' }],
@@ -151,6 +148,8 @@ describe('syncLocalMultisigAccountsFromBackend', () => {
 
     await syncLocalMultisigAccountsFromBackend()
 
-    expect(createMultisigAccount).not.toHaveBeenCalled()
+    expect(createMultisigAccount).toHaveBeenCalledWith(
+      expect.objectContaining({ smartAccountAddress: WALLET })
+    )
   })
 })

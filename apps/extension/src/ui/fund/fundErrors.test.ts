@@ -3,19 +3,16 @@ import { describe, expect, it, vi } from 'vitest'
 import { formatFundError } from './fundErrors'
 
 describe('formatFundError', () => {
-  it('names both networks for network_mismatch', () => {
+  it('says the app is pointed at the wrong deployment', () => {
     expect(
       formatFundError({
         code: 'network_mismatch',
         message: 'Latch API issued a testnet challenge while the wallet is on mainnet.',
       })
-    ).toContain('testnet')
-    expect(
-      formatFundError({
-        code: 'network_mismatch',
-        message: 'Latch API issued a testnet challenge while the wallet is on mainnet.',
-      })
-    ).toContain('mainnet')
+    ).toBe('Latch is pointed at the wrong deployment.')
+    expect(formatFundError({ code: 'NETWORK_MISMATCH', message: 'network mismatch' })).toBe(
+      'Latch is pointed at the wrong deployment.'
+    )
   })
 
   it('does not blame only WEBAUTHN_ALLOWED_ORIGINS for UNAUTHORIZED', () => {

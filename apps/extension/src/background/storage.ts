@@ -12,7 +12,6 @@ import type {
 
 import { clearAllMnemonicVaultRecords, removeMnemonicVaultForAccount } from './mnemonicVault'
 import { clearActivityHistoryForAccount, clearAllActivityHistory } from './activityHistory'
-import { getActiveNetwork } from './network/config'
 import {
   clearAllDappRequests,
   listLiveDappRequests,
@@ -90,18 +89,14 @@ export function envStorageKey(env: StorageEnv, suffix: string): string {
 }
 
 /**
- * Developer mode selects the deployment. An unset flag is production so a
- * missing toggle cannot attach staging state to mainnet.
- * Explicit false is mainnet; explicit true is testnet. Unset keeps the
- * historical network (tests and pre-toggle installs) but still uses the prod
- * key prefix — migrated testnet wallets live under dev, not here.
+ * Developer mode selects the deployment. An unset flag is production mainnet
+ * so a missing toggle cannot attach staging state, or a stored network, to
+ * the production host.
  */
 async function resolveLiveStorage(): Promise<{ env: StorageEnv; network: Network }> {
   const res = await chrome.storage.local.get([STORAGE_KEYS.developerMode])
-  const flag = res[STORAGE_KEYS.developerMode]
-  if (flag === true) return { env: 'dev', network: 'testnet' }
-  if (flag === false) return { env: 'prod', network: 'mainnet' }
-  return { env: 'prod', network: await getActiveNetwork() }
+  if (res[STORAGE_KEYS.developerMode] === true) return { env: 'dev', network: 'testnet' }
+  return { env: 'prod', network: 'mainnet' }
 }
 
 async function scopedKey(suffix: string): Promise<string> {

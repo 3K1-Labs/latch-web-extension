@@ -32,7 +32,7 @@ describe('background message routing (smoke)', () => {
     await chrome.storage.local.set({
       'latch.env.storageMigrated': true,
       'latch.env.prod.accounts.byNetwork': {
-        testnet: [
+        mainnet: [
           {
             id: 'acct-1',
             mode: 'passkey',
@@ -41,7 +41,7 @@ describe('background message routing (smoke)', () => {
           },
         ],
       },
-      'latch.env.prod.activeAccountId.byNetwork': { testnet: 'acct-1' },
+      'latch.env.prod.activeAccountId.byNetwork': { mainnet: 'acct-1' },
     })
 
     await import('./index')

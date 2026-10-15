@@ -5,11 +5,11 @@ import { loadSmartAccountPortfolioRows } from '@latch/stellar'
 import { announceMembership, listMemberships } from '../api/cosign/memberships'
 import { getWCKBundle, storeWCKBundle } from '../api/cosign/wckBundles'
 import {
-  getStellarNetworkFromEnv,
-  horizonUrlFromEnv,
-  networkPassphraseFromEnv,
-  sorobanRpcUrlFromEnv,
-} from '../migration/env'
+  getActiveNetwork,
+  horizonUrlFor,
+  networkPassphraseFor,
+  sorobanRpcUrlFor,
+} from '../network/config'
 import { getAccounts, upsertAccount } from '../storage'
 import {
   deriveBlindSignerId,
@@ -33,12 +33,13 @@ import {
 
 async function verifyOnChainMembership(walletRef: string): Promise<boolean> {
   try {
+    const network = await getActiveNetwork()
     await loadSmartAccountPortfolioRows({
-      rpcUrl: sorobanRpcUrlFromEnv(),
-      networkPassphrase: networkPassphraseFromEnv(),
-      network: getStellarNetworkFromEnv(),
+      rpcUrl: sorobanRpcUrlFor(network),
+      networkPassphrase: networkPassphraseFor(network),
+      network,
       cAddress: walletRef,
-      horizonUrl: horizonUrlFromEnv(),
+      horizonUrl: horizonUrlFor(network),
       signal: AbortSignal.timeout(10_000),
     })
     return true
