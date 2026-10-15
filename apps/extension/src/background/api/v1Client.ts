@@ -1,6 +1,6 @@
 import type { V1TokenPair } from '@latch/types'
 
-import { latchApiBaseUrl } from './config'
+import { latchApiBaseUrl, latchRequestTimeoutMs, noteLatchApiSuccess } from './config'
 import { BackendError } from './client'
 import { clearV1TokenPair, getV1TokenPair, isTokenFresh, setV1TokenPair } from './v1TokenStorage'
 import { buildWalletSignInBodyFromAssertion } from './v1WalletSignIn'
@@ -22,7 +22,7 @@ export async function v1FetchAbsolute<T>(
   init?: RequestInit & { accessToken?: string; timeoutMs?: number }
 ): Promise<T> {
   const controller = new AbortController()
-  const timeoutMs = init?.timeoutMs ?? 20_000
+  const timeoutMs = await latchRequestTimeoutMs(init?.timeoutMs, 20_000)
   const timeout = setTimeout(() => controller.abort(), timeoutMs)
 
   try {
@@ -60,7 +60,9 @@ export async function v1FetchAbsolute<T>(
       })
     }
 
-    return unwrapV1<T>(json, url)
+    const data = unwrapV1<T>(json, url)
+    await noteLatchApiSuccess()
+    return data
   } catch (err) {
     if (err instanceof BackendError) throw err
     if (err instanceof Error && err.name === 'AbortError') {
@@ -76,7 +78,7 @@ export async function v1Fetch<T>(
   path: string,
   init?: RequestInit & { accessToken?: string; timeoutMs?: number }
 ): Promise<T> {
-  const baseUrl = latchApiBaseUrl()
+  const baseUrl = await latchApiBaseUrl()
   return v1FetchAbsolute<T>(`${baseUrl}${path}`, init)
 }
 

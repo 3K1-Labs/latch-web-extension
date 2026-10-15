@@ -1,6 +1,6 @@
 import type { SerializableError } from '@latch/types'
 
-import { latchApiBaseUrl } from './config'
+import { latchApiBaseUrl, latchRequestTimeoutMs, noteLatchApiSuccess } from './config'
 import { parseApiError } from './errors'
 
 export class BackendError extends Error {
@@ -82,11 +82,17 @@ export async function latchFetchAbsoluteWithResponse<TRes>(
   url: string,
   init?: RequestInit & { timeoutMs?: number; signal?: AbortSignal }
 ): Promise<{ res: Response; data: TRes }> {
-  const timeoutMs = init?.timeoutMs ?? 20_000
+  const timeoutMs = await latchRequestTimeoutMs(init?.timeoutMs, 20_000)
   const { signal, cleanup, callerSignal } = mergeAbortSignals(timeoutMs, init?.signal)
-  const baseUrl = latchApiBaseUrl()
+  const baseUrl = new URL(url).origin
 
   try {
+    if (signal.aborted) {
+      if (callerSignal?.aborted) {
+        throw new BackendError('Request cancelled', { code: 'cancelled' })
+      }
+      throw new BackendError('Request timed out', { code: 'timeout' })
+    }
     const res = await fetch(url, {
       ...init,
       credentials: init?.credentials ?? 'include',
@@ -99,6 +105,7 @@ export async function latchFetchAbsoluteWithResponse<TRes>(
 
     const data = (await parseJsonResponse(res, baseUrl, url)) as TRes
     throwIfNotOk(res, data)
+    await noteLatchApiSuccess()
     return { res, data }
   } catch (err) {
     if (err instanceof BackendError) throw err
@@ -126,6 +133,7 @@ export async function latchFetch<TRes>(
   path: string,
   init?: RequestInit & { timeoutMs?: number; signal?: AbortSignal }
 ): Promise<TRes> {
-  const baseUrl = latchApiBaseUrl()
-  return latchFetchAbsolute<TRes>(`${baseUrl}${path}`, init)
+  const baseUrl = await latchApiBaseUrl()
+  const timeoutMs = await latchRequestTimeoutMs(init?.timeoutMs, 20_000)
+  return latchFetchAbsolute<TRes>(`${baseUrl}${path}`, { ...init, timeoutMs })
 }

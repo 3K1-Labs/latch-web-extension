@@ -1,5 +1,5 @@
 import { BackendError } from './client'
-import { latchMarketApiBaseUrl } from './config'
+import { latchMarketApiBaseUrl, latchRequestTimeoutMs, noteLatchApiSuccess } from './config'
 import { parseApiError } from './errors'
 
 export type NormalizedTokenPrice = { priceUsd: number; change24h: number }
@@ -50,12 +50,12 @@ export async function fetchMarketPricesNormalized(
   tokensLower: string[],
   opts?: { timeoutMs?: number }
 ): Promise<Record<string, NormalizedTokenPrice>> {
-  const base = latchMarketApiBaseUrl()
+  const base = await latchMarketApiBaseUrl()
   const q = encodeURIComponent(tokensLower.join(','))
   const url = `${base}/prices?tokens=${q}`
 
   const controller = new AbortController()
-  const timeoutMs = opts?.timeoutMs ?? 10_000
+  const timeoutMs = await latchRequestTimeoutMs(opts?.timeoutMs, 10_000)
   const timeout = setTimeout(() => controller.abort(), timeoutMs)
 
   try {
@@ -79,7 +79,9 @@ export async function fetchMarketPricesNormalized(
     }
 
     const body = data as { data?: Record<string, RawPriceEntry> }
-    return normalizeMarketPricesData(body.data)
+    const normalized = normalizeMarketPricesData(body.data)
+    await noteLatchApiSuccess()
+    return normalized
   } catch (err) {
     if (err instanceof BackendError) throw err
     if (err instanceof Error && err.name === 'AbortError') {
