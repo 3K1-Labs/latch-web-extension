@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react'
+import React from 'react'
 
 import type { MultisigPredictResponse } from '@latch/types'
 
+import { useCopiedFlag } from '../../components/CopyIconButton'
 import { OnboardingPrimaryButton } from '../../onboarding/components/OnboardingCardButtons'
 import { OnboardingSmallEmblem } from '../../onboarding/components/OnboardingSmallEmblem'
 
@@ -35,14 +36,8 @@ export function MultisigReviewDeployScreen({
   onBack: () => void
   onDeploy: () => void
 }) {
-  const [copied, setCopied] = useState(false)
+  const { copied, markCopied } = useCopiedFlag()
   const address = predicted?.smartAccountAddress ?? ''
-
-  useEffect(() => {
-    if (!copied) return
-    const t = setTimeout(() => setCopied(false), 2000)
-    return () => clearTimeout(t)
-  }, [copied])
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col gap-6">
@@ -75,8 +70,9 @@ export function MultisigReviewDeployScreen({
                 <button
                   type="button"
                   className="text-xs font-medium text-primary"
+                  aria-label={copied ? 'Copied' : 'Copy'}
                   onClick={() => {
-                    void navigator.clipboard.writeText(address).then(() => setCopied(true))
+                    void navigator.clipboard.writeText(address).then(() => markCopied())
                   }}
                 >
                   {copied ? 'Copied' : 'Copy'}

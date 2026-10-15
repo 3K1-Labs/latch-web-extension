@@ -1,8 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React from 'react'
 
-import copyIconUrl from 'url:../../../../assets/home/icon-copy.svg'
 import qrIconUrl from 'url:../../../../assets/receive/icon-qr.svg'
 
+import { CopyIconButton } from '../../components/CopyIconButton'
 import { TokenAvatar } from '../../components/TokenAvatar'
 import { formatDisplayAmount2dp } from '../../lib/formatDisplay'
 
@@ -22,16 +22,6 @@ export function ReceiveTokenCard({
   token: ReceiveToken
   onSelect: () => void
 }) {
-  const [copied, setCopied] = useState(false)
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const disabled = !token.address || token.address === '—'
-
-  useEffect(() => {
-    return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current)
-    }
-  }, [])
-
   return (
     <div className="flex w-full items-center gap-2 rounded-[14px] bg-[#2a2928] p-3">
       <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -65,25 +55,7 @@ export function ReceiveTokenCard({
         <img src={qrIconUrl} alt="" className="size-5" aria-hidden />
       </button>
 
-      <button
-        type="button"
-        disabled={disabled}
-        className="size-5 shrink-0 disabled:opacity-30"
-        aria-label={copied ? 'Copied' : 'Copy address'}
-        onClick={() => {
-          if (disabled) return
-          void navigator.clipboard.writeText(token.address).then(() => {
-            setCopied(true)
-            if (timeoutRef.current) clearTimeout(timeoutRef.current)
-            timeoutRef.current = setTimeout(() => {
-              setCopied(false)
-              timeoutRef.current = null
-            }, 2000)
-          })
-        }}
-      >
-        <img src={copyIconUrl} alt="" className="size-5" aria-hidden />
-      </button>
+      <CopyIconButton text={token.address} className="size-5" iconClassName="size-5" />
     </div>
   )
 }

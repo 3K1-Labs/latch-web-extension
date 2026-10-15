@@ -19,7 +19,7 @@ import signersIconUrl from 'url:../../../assets/home/settings-signers.svg'
 import { AccountInformationScreen } from './settings/AccountInformationScreen'
 import { AddressBookScreen } from './settings/AddressBookScreen'
 import { ConfirmLogoutModal } from './settings/ConfirmLogoutModal'
-import { NetworkSettingsScreen } from './settings/NetworkSettingsScreen'
+import { DeveloperModeConfirmScreen } from './settings/DeveloperModeConfirmScreen'
 import { PermissionsFlow } from './settings/PermissionsFlow'
 import { ProfileCard } from './settings/ProfileCard'
 import { SettingItem } from './settings/SettingItem'
@@ -36,7 +36,7 @@ type SettingsView =
   | 'viewAccounts'
   | 'addressBook'
   | 'permissions'
-  | 'network'
+  | 'developerMode'
 
 export function SettingsScreen({
   surface,
@@ -59,6 +59,8 @@ export function SettingsScreen({
   onOpenMultisigProposals,
   pendingMultisigProposalCount,
   networkLabel,
+  developerModeEnabled,
+  onDeveloperModeApplied,
   onClose,
   onLogout,
 }: {
@@ -82,10 +84,13 @@ export function SettingsScreen({
   onOpenMultisigProposals?: () => void
   pendingMultisigProposalCount?: number
   networkLabel: string
+  developerModeEnabled: boolean
+  onDeveloperModeApplied: () => void | Promise<void>
   onClose: () => void
   onLogout: () => void | Promise<void>
 }) {
   const [view, setView] = useState<SettingsView>('menu')
+  const [pendingDeveloperMode, setPendingDeveloperMode] = useState<boolean | null>(null)
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false)
   const [logoutBusy, setLogoutBusy] = useState(false)
   const [logoutError, setLogoutError] = useState<string | undefined>(undefined)
@@ -108,10 +113,17 @@ export function SettingsScreen({
     }
   }
 
-  if (view === 'network') {
+  if (view === 'developerMode' && pendingDeveloperMode != null) {
     return (
       <div className="flex h-full w-full min-h-0 flex-col overflow-y-auto rounded-bl-lg rounded-br-lg bg-[#1c1c1c] py-6 pl-6 pr-4">
-        <NetworkSettingsScreen networkLabel={networkLabel} onBack={() => setView('menu')} />
+        <DeveloperModeConfirmScreen
+          enabling={pendingDeveloperMode}
+          onBack={() => {
+            setPendingDeveloperMode(null)
+            setView('menu')
+          }}
+          onApplied={onDeveloperModeApplied}
+        />
       </div>
     )
   }
@@ -267,12 +279,22 @@ export function SettingsScreen({
           <SettingsSection label="Preferences">
             <SettingItem
               icon={<img src={networkIconUrl} alt="" className={rowIconClass} />}
-              label="Network"
-              onClick={() => setView('network')}
-              rightElement={
-                <span className="mr-2 truncate text-sm text-[#fcfcfc]/opacity-60">
-                  {networkLabel}
+              label={
+                <span className="flex min-w-0 flex-col">
+                  <span>Developer mode</span>
+                  <span className="text-[#fcfcfc]/opacity-60">Testnet</span>
                 </span>
+              }
+              showChevron={false}
+              rightElement={
+                <SettingsToggle
+                  checked={developerModeEnabled}
+                  onChange={(next) => {
+                    setPendingDeveloperMode(next)
+                    setView('developerMode')
+                  }}
+                  ariaLabel="Developer mode, testnet"
+                />
               }
             />
             <SettingItem

@@ -1,5 +1,6 @@
-import React, { useState } from 'react'
+import React from 'react'
 
+import { useCopiedFlag } from '../../components/CopyIconButton'
 import { OnboardingPrimaryButton } from '../../onboarding/components/OnboardingCardButtons'
 import { OnboardingSmallEmblem } from '../../onboarding/components/OnboardingSmallEmblem'
 
@@ -20,8 +21,8 @@ export function MultisigSuccessScreen({
   inviteToken?: string
   onGoHome: () => void
 }) {
-  const [copiedLink, setCopiedLink] = useState(false)
-  const [copiedCode, setCopiedCode] = useState(false)
+  const linkCopy = useCopiedFlag()
+  const codeCopy = useCopiedFlag()
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col gap-6">
@@ -53,27 +54,27 @@ export function MultisigSuccessScreen({
             <button
               type="button"
               className="text-sm font-medium text-primary"
+              aria-label={linkCopy.copied ? 'Copied' : 'Copy invite link'}
               onClick={() => {
                 void navigator.clipboard.writeText(inviteUrl).then(() => {
-                  setCopiedLink(true)
-                  setCopiedCode(false)
+                  linkCopy.markCopied()
                 })
               }}
             >
-              {copiedLink ? 'Copied invite link' : 'Copy invite link'}
+              {linkCopy.copied ? 'Copied invite link' : 'Copy invite link'}
             </button>
             {inviteToken ? (
               <button
                 type="button"
                 className="text-sm font-medium text-primary"
+                aria-label={codeCopy.copied ? 'Copied' : 'Copy invite code'}
                 onClick={() => {
                   void navigator.clipboard.writeText(inviteToken).then(() => {
-                    setCopiedCode(true)
-                    setCopiedLink(false)
+                    codeCopy.markCopied()
                   })
                 }}
               >
-                {copiedCode ? 'Copied invite code' : 'Copy invite code'}
+                {codeCopy.copied ? 'Copied invite code' : 'Copy invite code'}
               </button>
             ) : null}
           </div>

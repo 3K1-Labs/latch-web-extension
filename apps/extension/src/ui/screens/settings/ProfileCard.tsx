@@ -1,8 +1,9 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React from 'react'
 
 import chevronRightUrl from 'url:../../../../assets/home/icon-chevron-right.svg'
-import copyIconUrl from 'url:../../../../assets/home/icon-copy.svg'
 import userAvatarUrl from 'url:../../../../assets/icons/user.png'
+
+import { CopyIconButton } from '../../components/CopyIconButton'
 
 interface ProfileCardProps {
   name: string
@@ -11,17 +12,8 @@ interface ProfileCardProps {
 }
 
 export function ProfileCard({ name, address, onClick }: ProfileCardProps) {
-  const [copied, setCopied] = useState(false)
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const shortAddress =
     address.length > 12 ? `${address.slice(0, 4)}...${address.slice(-4)}` : address
-  const disabled = !address || address === '—'
-
-  useEffect(() => {
-    return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current)
-    }
-  }, [])
 
   return (
     <button
@@ -41,26 +33,7 @@ export function ProfileCard({ name, address, onClick }: ProfileCardProps) {
             <span className="text-sm font-normal leading-[1.34] tracking-[-0.28px] text-[#b3b3b3]">
               {shortAddress}
             </span>
-            <button
-              type="button"
-              disabled={disabled}
-              className="inline-flex size-4 items-center justify-center disabled:opacity-30"
-              aria-label={copied ? 'Copied' : 'Copy address'}
-              onClick={(e) => {
-                e.stopPropagation()
-                if (disabled) return
-                void navigator.clipboard.writeText(address).then(() => {
-                  setCopied(true)
-                  if (timeoutRef.current) clearTimeout(timeoutRef.current)
-                  timeoutRef.current = setTimeout(() => {
-                    setCopied(false)
-                    timeoutRef.current = null
-                  }, 2000)
-                })
-              }}
-            >
-              <img src={copyIconUrl} alt="" className="size-4" />
-            </button>
+            <CopyIconButton text={address} className="size-4" stopPropagation />
           </div>
         </div>
       </div>

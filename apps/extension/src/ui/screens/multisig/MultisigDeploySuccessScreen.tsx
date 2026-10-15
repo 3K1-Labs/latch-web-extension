@@ -1,9 +1,10 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { Share2 } from 'lucide-react'
 
 import latchLogoUrl from 'url:../../../../assets/home/loading-logo.svg'
-import copyIconUrl from 'url:../../../../assets/home/icon-copy.svg'
 import qrIconUrl from 'url:../../../../assets/receive/icon-qr.svg'
+
+import { CopyGlyph, useCopiedFlag } from '../../components/CopyIconButton'
 import successIllustrationUrl from 'url:../../../../assets/avatars/success.png'
 
 import { OnboardingPrimaryButton } from '../../onboarding/components/OnboardingCardButtons'
@@ -16,12 +17,12 @@ export function MultisigDeploySuccessScreen({
   onGoToWallet,
 }: {
   smartAccountAddress: string
-  onCopyAddress: () => void
+  onCopyAddress: () => void | Promise<void>
   onShareAddress: () => void
   onOpenReceiveQr: () => void
   onGoToWallet: () => void
 }) {
-  const [copied, setCopied] = useState(false)
+  const { copied, markCopied } = useCopiedFlag()
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col gap-6">
@@ -66,12 +67,11 @@ export function MultisigDeploySuccessScreen({
             <ActionIconButton
               ariaLabel={copied ? 'Copied' : 'Copy address'}
               onClick={() => {
-                onCopyAddress()
-                setCopied(true)
-                window.setTimeout(() => setCopied(false), 1200)
+                if (!smartAccountAddress.trim()) return
+                void Promise.resolve(onCopyAddress()).then(() => markCopied())
               }}
             >
-              <img src={copyIconUrl} alt="" className="h-6 w-6 object-contain" aria-hidden />
+              <CopyGlyph copied={copied} className="h-6 w-6" />
             </ActionIconButton>
 
             <ActionIconButton ariaLabel="Share address" onClick={onShareAddress}>

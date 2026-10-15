@@ -1,8 +1,9 @@
-import React, { useState, type ClipboardEvent } from 'react'
+import React, { type ClipboardEvent } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 
 import type { MultisigAccount, MultisigPendingInvite } from '@latch/types'
 
+import { useCopiedFlag } from '../../components/CopyIconButton'
 import { parseInviteTokenFromInput } from '../../lib/cosignDeepLink'
 
 import { OnboardingPrimaryButton } from '../../onboarding/components/OnboardingCardButtons'
@@ -140,8 +141,8 @@ export function MultisigInviteShareCard({
   inviteUrl: string
   inviteToken: string
 }) {
-  const [copiedLink, setCopiedLink] = useState(false)
-  const [copiedCode, setCopiedCode] = useState(false)
+  const linkCopy = useCopiedFlag()
+  const codeCopy = useCopiedFlag()
 
   return (
     <div className="flex flex-col gap-3 rounded-[14px] border border-dashed border-[#383838] bg-[#2a2928] p-4">
@@ -155,26 +156,26 @@ export function MultisigInviteShareCard({
       <button
         type="button"
         className="text-sm font-medium text-primary"
+        aria-label={linkCopy.copied ? 'Copied' : 'Copy invite link'}
         onClick={() => {
           void navigator.clipboard.writeText(inviteUrl).then(() => {
-            setCopiedLink(true)
-            setCopiedCode(false)
+            linkCopy.markCopied()
           })
         }}
       >
-        {copiedLink ? 'Copied link' : 'Copy invite link'}
+        {linkCopy.copied ? 'Copied link' : 'Copy invite link'}
       </button>
       <button
         type="button"
         className="text-sm font-medium text-primary"
+        aria-label={codeCopy.copied ? 'Copied' : 'Copy invite code'}
         onClick={() => {
           void navigator.clipboard.writeText(inviteToken).then(() => {
-            setCopiedCode(true)
-            setCopiedLink(false)
+            codeCopy.markCopied()
           })
         }}
       >
-        {copiedCode ? 'Copied code' : 'Copy invite code'}
+        {codeCopy.copied ? 'Copied code' : 'Copy invite code'}
       </button>
       <p className="break-all font-mono text-xs text-[#b3b3b3]">{inviteToken}</p>
     </div>

@@ -46,6 +46,7 @@ export function useAccountsHydration({
   const [activeAccountId, setActiveAccountId] = useState<string | undefined>(undefined)
   const [activeNetwork, setActiveNetwork] = useState<'testnet' | 'mainnet'>('testnet')
   const [networkLabel, setNetworkLabel] = useState('Stellar Testnet')
+  const [developerMode, setDeveloperMode] = useState(false)
 
   const activeAccount = useMemo(
     () => accounts.find((a) => a.id === activeAccountId) ?? accounts[0],
@@ -99,6 +100,31 @@ export function useAccountsHydration({
     [setRoute]
   )
 
+  const refreshDeployment = useCallback(async () => {
+    try {
+      const [netRes, modeRes] = await Promise.all([
+        sendToBackground<undefined, { network: 'testnet' | 'mainnet'; networkLabel: string }>({
+          type: 'GET_ACTIVE_NETWORK',
+          payload: undefined,
+        }),
+        sendToBackground<undefined, { enabled: boolean }>({
+          type: 'GET_DEVELOPER_MODE',
+          payload: undefined,
+        }),
+      ])
+      if (netRes.ok && netRes.data?.network) {
+        setActiveNetwork(netRes.data.network)
+        setNetworkLabel(
+          netRes.data.networkLabel ||
+            (netRes.data.network === 'mainnet' ? 'Stellar Mainnet' : 'Stellar Testnet')
+        )
+      }
+      if (modeRes.ok && modeRes.data) setDeveloperMode(modeRes.data.enabled === true)
+    } catch (e) {
+      logLatchError('hydrate:network', e)
+    }
+  }, [])
+
   const loadAccountsFromBackground = useCallback(async () => {
     const gen = ++accountsLoadGenRef.current
     setAccountsLoadError(null)
@@ -144,32 +170,13 @@ export function useAccountsHydration({
       // Load accounts first so we never flash "Set up Latch" while the SW is still waking.
       await loadAccountsFromBackground()
       if (cancelled) return
-
-      try {
-        const netRes = await sendToBackground<
-          undefined,
-          { network: 'testnet' | 'mainnet'; networkLabel: string }
-        >({
-          type: 'GET_ACTIVE_NETWORK',
-          payload: undefined,
-        })
-        if (cancelled) return
-        if (netRes.ok && netRes.data?.network) {
-          setActiveNetwork(netRes.data.network)
-          setNetworkLabel(
-            netRes.data.networkLabel ||
-              (netRes.data.network === 'mainnet' ? 'Stellar Mainnet' : 'Stellar Testnet')
-          )
-        }
-      } catch (e) {
-        logLatchError('hydrate:network', e)
-      }
+      await refreshDeployment()
     })()
 
     return () => {
       cancelled = true
     }
-  }, [loadAccountsFromBackground])
+  }, [loadAccountsFromBackground, refreshDeployment])
 
   useEffect(() => {
     if (!accountsHydrated) return
@@ -273,6 +280,8 @@ export function useAccountsHydration({
     setActiveAccountId,
     activeNetwork,
     setActiveNetwork,
+    developerMode,
+    refreshDeployment,
     networkLabel,
     setNetworkLabel,
     activeAccount,
