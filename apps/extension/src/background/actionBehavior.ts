@@ -203,25 +203,34 @@ chrome.runtime.onStartup.addListener(() => {
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== 'local') return
-  if (
-    changes[STORAGE_KEYS.uiSurface] ||
-    changes[LEGACY_SETUP_KEY] ||
-    changes[SETUP_BY_NETWORK_KEY] ||
-    changes[LEGACY_ACCOUNTS_KEY] ||
-    changes[ACCOUNTS_BY_NETWORK_KEY] ||
-    changes[NETWORK_STORAGE_KEY]
-  ) {
+  const changed = Object.keys(changes)
+  const touchesAccounts = changed.some(
+    (key) =>
+      key === LEGACY_SETUP_KEY ||
+      key === SETUP_BY_NETWORK_KEY ||
+      key === LEGACY_ACCOUNTS_KEY ||
+      key === ACCOUNTS_BY_NETWORK_KEY ||
+      key.endsWith('accounts.byNetwork') ||
+      key.endsWith('setupState.byNetwork') ||
+      key === 'latch.developerMode'
+  )
+  const touchesActive = changed.some(
+    (key) =>
+      key === LEGACY_ACTIVE_ID_KEY ||
+      key === ACTIVE_ID_BY_NETWORK_KEY ||
+      key === LEGACY_ACCOUNTS_KEY ||
+      key === ACCOUNTS_BY_NETWORK_KEY ||
+      key.endsWith('accounts.byNetwork') ||
+      key.endsWith('activeAccountId.byNetwork') ||
+      key === 'latch.developerMode'
+  )
+  if (changes[STORAGE_KEYS.uiSurface] || touchesAccounts || changes[NETWORK_STORAGE_KEY]) {
     void ensureSetupStateMatchesAccounts().then(() => applyActionClickBehavior())
   }
-  if (
-    changes[LEGACY_ACTIVE_ID_KEY] ||
-    changes[ACTIVE_ID_BY_NETWORK_KEY] ||
-    changes[LEGACY_ACCOUNTS_KEY] ||
-    changes[ACCOUNTS_BY_NETWORK_KEY]
-  ) {
+  if (touchesActive) {
     void broadcastActiveAccountChanged()
   }
-  if (changes[NETWORK_STORAGE_KEY]) {
+  if (changes[NETWORK_STORAGE_KEY] || changes['latch.developerMode']) {
     void broadcastNetworkChanged()
   }
 })

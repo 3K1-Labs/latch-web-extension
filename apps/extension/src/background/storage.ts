@@ -21,14 +21,14 @@ import {
 } from './dapp/requestState'
 
 const STORAGE_KEYS = {
-  /** Legacy flat setup; migrated into setupStateByNetwork.testnet */
+  /** Legacy flat setup; migrated into the dev namespace setupState.byNetwork.testnet */
   setupState: 'latch.setupState',
   setupStateByNetwork: 'latch.setupState.byNetwork',
   legacyAccountPublicKey: 'latch.accountPublicKey',
-  /** Legacy flat accounts; migrated into accountsByNetwork.testnet */
+  /** Legacy flat accounts; migrated into the dev namespace. */
   accounts: 'latch.accounts',
   accountsByNetwork: 'latch.accounts.byNetwork',
-  /** Legacy flat active id; migrated into activeAccountIdByNetwork.testnet */
+  /** Legacy flat active id; migrated into the dev namespace. */
   activeAccountId: 'latch.activeAccountId',
   activeAccountIdByNetwork: 'latch.activeAccountId.byNetwork',
   dappPermissions: 'latch.dappPermissions',
@@ -62,11 +62,52 @@ const STORAGE_KEYS = {
    * would put two identically named credentials in the user's picker.
    */
   passkeySeq: 'latch.passkeySeq',
-  /** Shared by popup and side panel. Selects the staging latch-api base URL. */
+  /** Shared by popup and side panel. Selects the staging latch-api base URL. Not namespaced. */
   developerMode: 'latch.developerMode',
   /** Last successful latch-api response while developer mode is on. Not account data. */
   developerModeLastOkAt: 'latch.developerModeLastOkAt',
+  /** Set once un-namespaced account state has been copied into the dev namespace. */
+  envStorageMigrated: 'latch.env.storageMigrated',
 } as const
+
+export type StorageEnv = 'prod' | 'dev'
+
+/** Suffixes stored under `latch.env.prod.` / `latch.env.dev.`. */
+const ENV_SUFFIX = {
+  accountsByNetwork: 'accounts.byNetwork',
+  activeAccountIdByNetwork: 'activeAccountId.byNetwork',
+  setupStateByNetwork: 'setupState.byNetwork',
+  removedAccounts: 'removedAccounts.byNetwork',
+  accountSigners: 'accountSigners.byNetwork',
+  multisigPendingInvites: 'multisigPendingInvites',
+  multisigDraftMeta: 'multisigDraftMeta',
+  multisigProposalsBannerDismissed: 'multisigProposalsBannerDismissed',
+  mnemonicVault: 'mnemonicVault.v1',
+} as const
+
+export function envStorageKey(env: StorageEnv, suffix: string): string {
+  return `latch.env.${env}.${suffix}`
+}
+
+/**
+ * Developer mode selects the deployment. An unset flag is production so a
+ * missing toggle cannot attach staging state to mainnet.
+ * Explicit false is mainnet; explicit true is testnet. Unset keeps the
+ * historical network (tests and pre-toggle installs) but still uses the prod
+ * key prefix — migrated testnet wallets live under dev, not here.
+ */
+async function resolveLiveStorage(): Promise<{ env: StorageEnv; network: Network }> {
+  const res = await chrome.storage.local.get([STORAGE_KEYS.developerMode])
+  const flag = res[STORAGE_KEYS.developerMode]
+  if (flag === true) return { env: 'dev', network: 'testnet' }
+  if (flag === false) return { env: 'prod', network: 'mainnet' }
+  return { env: 'prod', network: await getActiveNetwork() }
+}
+
+async function scopedKey(suffix: string): Promise<string> {
+  const { env } = await resolveLiveStorage()
+  return envStorageKey(env, suffix)
+}
 
 type DappPermissionsStore = Record<string, DappPermission[] | undefined>
 
@@ -85,12 +126,18 @@ export function storageKeys() {
 let accountsMigratePromise: Promise<void> | null = null
 
 /**
- * One-time: move flat latch.accounts / activeAccountId into the testnet bucket.
- * Idempotent; safe to call on every getAccounts().
+ * One-time: today's un-namespaced account state is the testnet deployment.
+ * Copy it into `latch.env.dev.*` and stop reading the unprefixed keys.
+ * A mainnet bucket inside the old object moves with that blob and is not
+ * promoted to prod, so a removed or mainnet-only row cannot reappear there.
+ * Idempotent; safe to call on every account read.
  */
 async function ensureAccountsPartitionMigrated(): Promise<void> {
   if (accountsMigratePromise) return accountsMigratePromise
   accountsMigratePromise = (async () => {
+    const marker = await chrome.storage.local.get([STORAGE_KEYS.envStorageMigrated])
+    if (marker[STORAGE_KEYS.envStorageMigrated] === true) return
+
     const res = await chrome.storage.local.get([
       STORAGE_KEYS.accounts,
       STORAGE_KEYS.activeAccountId,
@@ -98,66 +145,94 @@ async function ensureAccountsPartitionMigrated(): Promise<void> {
       STORAGE_KEYS.activeAccountIdByNetwork,
       STORAGE_KEYS.setupState,
       STORAGE_KEYS.setupStateByNetwork,
+      STORAGE_KEYS.removedAccounts,
+      STORAGE_KEYS.accountSigners,
+      STORAGE_KEYS.multisigPendingInvites,
+      STORAGE_KEYS.multisigDraftMeta,
+      STORAGE_KEYS.multisigProposalsBannerDismissed,
+      'latch.mnemonicVault.v1',
     ])
 
-    const byNetwork = (res[STORAGE_KEYS.accountsByNetwork] as AccountsByNetwork | undefined) ?? {}
-    const activeByNetwork =
+    let byNetwork = (res[STORAGE_KEYS.accountsByNetwork] as AccountsByNetwork | undefined) ?? {}
+    let activeByNetwork =
       (res[STORAGE_KEYS.activeAccountIdByNetwork] as ActiveIdByNetwork | undefined) ?? {}
-    const setupByNetwork =
+    let setupByNetwork =
       (res[STORAGE_KEYS.setupStateByNetwork] as SetupStateByNetwork | undefined) ?? {}
 
     const flatAccounts = res[STORAGE_KEYS.accounts] as StoredAccount[] | undefined
     const flatActive = res[STORAGE_KEYS.activeAccountId] as string | undefined
     const flatSetup = res[STORAGE_KEYS.setupState] as string | undefined
 
-    const patch: Record<string, unknown> = {}
-    const remove: string[] = []
-
     const hasPartitioned = Array.isArray(byNetwork.testnet) || Array.isArray(byNetwork.mainnet)
-
     if (!hasPartitioned && Array.isArray(flatAccounts) && flatAccounts.length > 0) {
-      patch[STORAGE_KEYS.accountsByNetwork] = {
-        ...byNetwork,
-        testnet: flatAccounts,
-      }
-      if (flatActive) {
-        patch[STORAGE_KEYS.activeAccountIdByNetwork] = {
-          ...activeByNetwork,
-          testnet: flatActive,
-        }
-      }
-      remove.push(STORAGE_KEYS.accounts, STORAGE_KEYS.activeAccountId)
-    } else if (!hasPartitioned && !Array.isArray(byNetwork.testnet)) {
-      // Ensure empty buckets exist so later writes use partitioned keys.
-      patch[STORAGE_KEYS.accountsByNetwork] = {
-        testnet: byNetwork.testnet ?? [],
-        mainnet: byNetwork.mainnet ?? [],
-      }
-      if (Object.keys(activeByNetwork).length === 0) {
-        patch[STORAGE_KEYS.activeAccountIdByNetwork] = { testnet: undefined, mainnet: undefined }
-      }
-      if (Array.isArray(flatAccounts)) {
-        remove.push(STORAGE_KEYS.accounts)
-      }
-      if (flatActive !== undefined) {
-        remove.push(STORAGE_KEYS.activeAccountId)
-      }
+      byNetwork = { ...byNetwork, testnet: flatAccounts }
+      if (flatActive) activeByNetwork = { ...activeByNetwork, testnet: flatActive }
     }
-
     if (setupByNetwork.testnet === undefined && setupByNetwork.mainnet === undefined && flatSetup) {
-      patch[STORAGE_KEYS.setupStateByNetwork] = {
-        ...setupByNetwork,
-        testnet: flatSetup,
-      }
-      remove.push(STORAGE_KEYS.setupState)
+      setupByNetwork = { ...setupByNetwork, testnet: flatSetup }
     }
 
-    if (Object.keys(patch).length > 0) {
-      await chrome.storage.local.set(patch)
+    const devAccountsKey = envStorageKey('dev', ENV_SUFFIX.accountsByNetwork)
+    const existingDev = await chrome.storage.local.get([devAccountsKey])
+    const devAlready = existingDev[devAccountsKey] as AccountsByNetwork | undefined
+    const patch: Record<string, unknown> = {
+      [STORAGE_KEYS.envStorageMigrated]: true,
     }
-    if (remove.length > 0) {
-      await chrome.storage.local.remove(remove)
+    if (!devAlready) {
+      patch[devAccountsKey] = byNetwork
+      patch[envStorageKey('dev', ENV_SUFFIX.activeAccountIdByNetwork)] = activeByNetwork
+      patch[envStorageKey('dev', ENV_SUFFIX.setupStateByNetwork)] = setupByNetwork
+      if (res[STORAGE_KEYS.removedAccounts] !== undefined) {
+        patch[envStorageKey('dev', ENV_SUFFIX.removedAccounts)] = res[STORAGE_KEYS.removedAccounts]
+      }
+      if (res[STORAGE_KEYS.accountSigners] !== undefined) {
+        patch[envStorageKey('dev', ENV_SUFFIX.accountSigners)] = res[STORAGE_KEYS.accountSigners]
+      }
+      if (res[STORAGE_KEYS.multisigPendingInvites] !== undefined) {
+        patch[envStorageKey('dev', ENV_SUFFIX.multisigPendingInvites)] =
+          res[STORAGE_KEYS.multisigPendingInvites]
+      }
+      if (res[STORAGE_KEYS.multisigDraftMeta] !== undefined) {
+        patch[envStorageKey('dev', ENV_SUFFIX.multisigDraftMeta)] =
+          res[STORAGE_KEYS.multisigDraftMeta]
+      }
+      if (res[STORAGE_KEYS.multisigProposalsBannerDismissed] !== undefined) {
+        patch[envStorageKey('dev', ENV_SUFFIX.multisigProposalsBannerDismissed)] =
+          res[STORAGE_KEYS.multisigProposalsBannerDismissed]
+      }
+      if (res['latch.mnemonicVault.v1'] !== undefined) {
+        patch[envStorageKey('dev', ENV_SUFFIX.mnemonicVault)] = res['latch.mnemonicVault.v1']
+      }
     }
+
+    const all = await chrome.storage.local.get(null)
+    const remove: string[] = [
+      STORAGE_KEYS.accounts,
+      STORAGE_KEYS.activeAccountId,
+      STORAGE_KEYS.accountsByNetwork,
+      STORAGE_KEYS.activeAccountIdByNetwork,
+      STORAGE_KEYS.setupState,
+      STORAGE_KEYS.setupStateByNetwork,
+      STORAGE_KEYS.removedAccounts,
+      STORAGE_KEYS.accountSigners,
+      STORAGE_KEYS.multisigPendingInvites,
+      STORAGE_KEYS.multisigDraftMeta,
+      STORAGE_KEYS.multisigProposalsBannerDismissed,
+      'latch.mnemonicVault.v1',
+    ]
+    for (const key of Object.keys(all)) {
+      if (key.startsWith('latch.env.')) continue
+      if (key.startsWith('latch.activityHistory.')) {
+        patch[`latch.env.dev.${key.slice('latch.'.length)}`] = all[key]
+        remove.push(key)
+      } else if (key.startsWith('latch.smartAccountBalances.')) {
+        patch[`latch.env.dev.${key.slice('latch.'.length)}`] = all[key]
+        remove.push(key)
+      }
+    }
+
+    await chrome.storage.local.set(patch)
+    await chrome.storage.local.remove(remove)
   })().finally(() => {
     // Allow retry if migration threw; otherwise keep promise for dedupe within session.
   })
@@ -175,13 +250,11 @@ async function readAccountsBucket(network: Network): Promise<{
   activeAccountId?: string
 }> {
   await ensureAccountsPartitionMigrated()
-  const res = await chrome.storage.local.get([
-    STORAGE_KEYS.accountsByNetwork,
-    STORAGE_KEYS.activeAccountIdByNetwork,
-  ])
-  const byNetwork = (res[STORAGE_KEYS.accountsByNetwork] as AccountsByNetwork | undefined) ?? {}
-  const activeByNetwork =
-    (res[STORAGE_KEYS.activeAccountIdByNetwork] as ActiveIdByNetwork | undefined) ?? {}
+  const accountsKey = await scopedKey(ENV_SUFFIX.accountsByNetwork)
+  const activeKey = await scopedKey(ENV_SUFFIX.activeAccountIdByNetwork)
+  const res = await chrome.storage.local.get([accountsKey, activeKey])
+  const byNetwork = (res[accountsKey] as AccountsByNetwork | undefined) ?? {}
+  const activeByNetwork = (res[activeKey] as ActiveIdByNetwork | undefined) ?? {}
   return {
     accounts: byNetwork[network] ?? [],
     activeAccountId: activeByNetwork[network],
@@ -194,21 +267,23 @@ async function writeAccountsBucket(
   activeAccountId: string | undefined
 ): Promise<void> {
   await ensureAccountsPartitionMigrated()
-  const res = await chrome.storage.local.get([
-    STORAGE_KEYS.accountsByNetwork,
-    STORAGE_KEYS.activeAccountIdByNetwork,
-  ])
-  const byNetwork = (res[STORAGE_KEYS.accountsByNetwork] as AccountsByNetwork | undefined) ?? {}
-  const activeByNetwork =
-    (res[STORAGE_KEYS.activeAccountIdByNetwork] as ActiveIdByNetwork | undefined) ?? {}
+  const accountsKey = await scopedKey(ENV_SUFFIX.accountsByNetwork)
+  const activeKey = await scopedKey(ENV_SUFFIX.activeAccountIdByNetwork)
+  const res = await chrome.storage.local.get([accountsKey, activeKey])
+  const byNetwork = (res[accountsKey] as AccountsByNetwork | undefined) ?? {}
+  const activeByNetwork = (res[activeKey] as ActiveIdByNetwork | undefined) ?? {}
 
   await chrome.storage.local.set({
-    [STORAGE_KEYS.accountsByNetwork]: { ...byNetwork, [network]: accounts },
-    [STORAGE_KEYS.activeAccountIdByNetwork]: {
+    [accountsKey]: { ...byNetwork, [network]: accounts },
+    [activeKey]: {
       ...activeByNetwork,
       [network]: activeAccountId,
     },
   })
+}
+
+async function liveNetwork(): Promise<Network> {
+  return (await resolveLiveStorage()).network
 }
 
 export async function getAccountsForNetwork(network: Network): Promise<GetAccountsResponse> {
@@ -216,12 +291,11 @@ export async function getAccountsForNetwork(network: Network): Promise<GetAccoun
 }
 
 export async function getAccounts(): Promise<GetAccountsResponse> {
-  const network = await getActiveNetwork()
-  return await readAccountsBucket(network)
+  return await readAccountsBucket(await liveNetwork())
 }
 
 export async function setActiveAccount(accountId: string): Promise<void> {
-  const network = await getActiveNetwork()
+  const network = await liveNetwork()
   const { accounts } = await readAccountsBucket(network)
   await writeAccountsBucket(network, accounts, accountId)
 }
@@ -233,7 +307,7 @@ function newId() {
 export async function upsertAccount(
   input: Omit<StoredAccount, 'id' | 'createdAt'> & Partial<Pick<StoredAccount, 'id' | 'createdAt'>>
 ) {
-  const network = await getActiveNetwork()
+  const network = await liveNetwork()
   const { accounts, activeAccountId } = await readAccountsBucket(network)
 
   const now = Date.now()
@@ -399,8 +473,10 @@ export async function createMultisigAccount(params: {
 }
 
 export async function getMultisigPendingInvites(): Promise<MultisigPendingInvite[]> {
-  const res = await chrome.storage.local.get([STORAGE_KEYS.multisigPendingInvites])
-  return (res[STORAGE_KEYS.multisigPendingInvites] as MultisigPendingInvite[] | undefined) ?? []
+  await ensureAccountsPartitionMigrated()
+  const key = await scopedKey(ENV_SUFFIX.multisigPendingInvites)
+  const res = await chrome.storage.local.get([key])
+  return (res[key] as MultisigPendingInvite[] | undefined) ?? []
 }
 
 export async function addMultisigPendingInvite(
@@ -409,7 +485,7 @@ export async function addMultisigPendingInvite(
   const current = await getMultisigPendingInvites()
   const filtered = current.filter((i) => i.token !== invite.token)
   const next = [...filtered, invite]
-  await chrome.storage.local.set({ [STORAGE_KEYS.multisigPendingInvites]: next })
+  await chrome.storage.local.set({ [await scopedKey(ENV_SUFFIX.multisigPendingInvites)]: next })
   return next
 }
 
@@ -431,45 +507,62 @@ export async function upsertMultisigPendingInvite(
 export async function removeMultisigPendingInvite(token: string): Promise<MultisigPendingInvite[]> {
   const current = await getMultisigPendingInvites()
   const next = current.filter((i) => i.token !== token)
-  await chrome.storage.local.set({ [STORAGE_KEYS.multisigPendingInvites]: next })
+  await chrome.storage.local.set({ [await scopedKey(ENV_SUFFIX.multisigPendingInvites)]: next })
   return next
 }
 
 export async function getMultisigDraftMeta(): Promise<MultisigDraftMeta | null> {
-  const res = await chrome.storage.local.get([STORAGE_KEYS.multisigDraftMeta])
-  return (res[STORAGE_KEYS.multisigDraftMeta] as MultisigDraftMeta | undefined) ?? null
+  await ensureAccountsPartitionMigrated()
+  const key = await scopedKey(ENV_SUFFIX.multisigDraftMeta)
+  const res = await chrome.storage.local.get([key])
+  return (res[key] as MultisigDraftMeta | undefined) ?? null
 }
 
 export async function setMultisigDraftMeta(meta: MultisigDraftMeta): Promise<void> {
-  await chrome.storage.local.set({ [STORAGE_KEYS.multisigDraftMeta]: meta })
+  await ensureAccountsPartitionMigrated()
+  await chrome.storage.local.set({ [await scopedKey(ENV_SUFFIX.multisigDraftMeta)]: meta })
 }
 
 export async function clearMultisigDraftMeta(): Promise<void> {
-  await chrome.storage.local.remove([STORAGE_KEYS.multisigDraftMeta])
+  await ensureAccountsPartitionMigrated()
+  await chrome.storage.local.remove([await scopedKey(ENV_SUFFIX.multisigDraftMeta)])
 }
 
 export async function getMultisigProposalsBannerDismissed(): Promise<string[]> {
-  const res = await chrome.storage.local.get([STORAGE_KEYS.multisigProposalsBannerDismissed])
-  return (res[STORAGE_KEYS.multisigProposalsBannerDismissed] as string[] | undefined) ?? []
+  await ensureAccountsPartitionMigrated()
+  const key = await scopedKey(ENV_SUFFIX.multisigProposalsBannerDismissed)
+  const res = await chrome.storage.local.get([key])
+  return (res[key] as string[] | undefined) ?? []
 }
 
 export async function dismissMultisigProposalsBanner(accountId: string): Promise<string[]> {
   const current = await getMultisigProposalsBannerDismissed()
   if (current.includes(accountId)) return current
   const next = [...current, accountId]
-  await chrome.storage.local.set({ [STORAGE_KEYS.multisigProposalsBannerDismissed]: next })
+  await chrome.storage.local.set({
+    [await scopedKey(ENV_SUFFIX.multisigProposalsBannerDismissed)]: next,
+  })
   return next
 }
 
-/** Passkey accounts across every network bucket, for the one-time seq seed. */
+/** Passkey accounts in both deployments, so a name is not reused across prod and dev. */
 async function countStoredPasskeyAccounts(): Promise<number> {
   await ensureAccountsPartitionMigrated()
-  const res = await chrome.storage.local.get([STORAGE_KEYS.accountsByNetwork])
-  const byNetwork = (res[STORAGE_KEYS.accountsByNetwork] as AccountsByNetwork | undefined) ?? {}
-  return Object.values(byNetwork).reduce(
-    (n, accounts) => n + (accounts ?? []).filter((a) => a.mode === 'passkey').length,
-    0
-  )
+  const keys = [
+    envStorageKey('prod', ENV_SUFFIX.accountsByNetwork),
+    envStorageKey('dev', ENV_SUFFIX.accountsByNetwork),
+  ]
+  const res = await chrome.storage.local.get(keys)
+  return keys.reduce((n, key) => {
+    const byNetwork = (res[key] as AccountsByNetwork | undefined) ?? {}
+    return (
+      n +
+      Object.values(byNetwork).reduce(
+        (inner, accounts) => inner + (accounts ?? []).filter((a) => a.mode === 'passkey').length,
+        0
+      )
+    )
+  }, 0)
 }
 
 async function readPasskeySeq(): Promise<number> {
@@ -507,30 +600,32 @@ export async function confirmPasskeySeq(seq: number): Promise<void> {
 }
 
 async function readRemovedAccounts(network: Network): Promise<string[]> {
-  const res = await chrome.storage.local.get([STORAGE_KEYS.removedAccounts])
-  const byNetwork =
-    (res[STORAGE_KEYS.removedAccounts] as RemovedAccountsByNetwork | undefined) ?? {}
+  await ensureAccountsPartitionMigrated()
+  const key = await scopedKey(ENV_SUFFIX.removedAccounts)
+  const res = await chrome.storage.local.get([key])
+  const byNetwork = (res[key] as RemovedAccountsByNetwork | undefined) ?? {}
   return byNetwork[network] ?? []
 }
 
 async function writeRemovedAccounts(network: Network, addresses: string[]): Promise<void> {
-  const res = await chrome.storage.local.get([STORAGE_KEYS.removedAccounts])
-  const byNetwork =
-    (res[STORAGE_KEYS.removedAccounts] as RemovedAccountsByNetwork | undefined) ?? {}
+  await ensureAccountsPartitionMigrated()
+  const key = await scopedKey(ENV_SUFFIX.removedAccounts)
+  const res = await chrome.storage.local.get([key])
+  const byNetwork = (res[key] as RemovedAccountsByNetwork | undefined) ?? {}
   await chrome.storage.local.set({
-    [STORAGE_KEYS.removedAccounts]: { ...byNetwork, [network]: addresses },
+    [key]: { ...byNetwork, [network]: addresses },
   })
 }
 
 /** Smart account addresses the user removed on this install (active network). */
 export async function getRemovedAccountAddresses(): Promise<string[]> {
-  return await readRemovedAccounts(await getActiveNetwork())
+  return await readRemovedAccounts(await liveNetwork())
 }
 
 export async function addRemovedAccountAddress(smartAccountAddress: string): Promise<void> {
   const addr = smartAccountAddress.trim()
   if (!addr) return
-  const network = await getActiveNetwork()
+  const network = await liveNetwork()
   const current = await readRemovedAccounts(network)
   if (current.includes(addr)) return
   await writeRemovedAccounts(network, [...current, addr])
@@ -540,7 +635,7 @@ export async function addRemovedAccountAddress(smartAccountAddress: string): Pro
 export async function removeRemovedAccountAddress(smartAccountAddress: string): Promise<void> {
   const addr = smartAccountAddress.trim()
   if (!addr) return
-  const network = await getActiveNetwork()
+  const network = await liveNetwork()
   const current = await readRemovedAccounts(network)
   if (!current.includes(addr)) return
   await writeRemovedAccounts(
@@ -550,8 +645,10 @@ export async function removeRemovedAccountAddress(smartAccountAddress: string): 
 }
 
 async function readAccountSignersMap(network: Network): Promise<AccountSignersByAddress> {
-  const res = await chrome.storage.local.get([STORAGE_KEYS.accountSigners])
-  const byNetwork = (res[STORAGE_KEYS.accountSigners] as AccountSignersByNetwork | undefined) ?? {}
+  await ensureAccountsPartitionMigrated()
+  const key = await scopedKey(ENV_SUFFIX.accountSigners)
+  const res = await chrome.storage.local.get([key])
+  const byNetwork = (res[key] as AccountSignersByNetwork | undefined) ?? {}
   return byNetwork[network] ?? {}
 }
 
@@ -559,10 +656,12 @@ async function writeAccountSignersMap(
   network: Network,
   byAddress: AccountSignersByAddress
 ): Promise<void> {
-  const res = await chrome.storage.local.get([STORAGE_KEYS.accountSigners])
-  const byNetwork = (res[STORAGE_KEYS.accountSigners] as AccountSignersByNetwork | undefined) ?? {}
+  await ensureAccountsPartitionMigrated()
+  const key = await scopedKey(ENV_SUFFIX.accountSigners)
+  const res = await chrome.storage.local.get([key])
+  const byNetwork = (res[key] as AccountSignersByNetwork | undefined) ?? {}
   await chrome.storage.local.set({
-    [STORAGE_KEYS.accountSigners]: { ...byNetwork, [network]: byAddress },
+    [key]: { ...byNetwork, [network]: byAddress },
   })
 }
 
@@ -572,7 +671,7 @@ export async function getAccountSignerRecords(
 ): Promise<AccountSignerRecord[]> {
   const addr = smartAccountAddress.trim()
   if (!addr) return []
-  const byAddress = await readAccountSignersMap(await getActiveNetwork())
+  const byAddress = await readAccountSignersMap(await liveNetwork())
   return byAddress[addr] ?? []
 }
 
@@ -584,7 +683,7 @@ export async function upsertAccountSignerRecord(
   const addr = smartAccountAddress.trim()
   const credentialId = record.credentialId.trim()
   if (!addr || !credentialId) return []
-  const network = await getActiveNetwork()
+  const network = await liveNetwork()
   const byAddress = await readAccountSignersMap(network)
   const current = byAddress[addr] ?? []
   const existing = current.find((s) => s.credentialId === credentialId)
@@ -606,7 +705,7 @@ export async function deleteAccountSignerRecord(
   const addr = smartAccountAddress.trim()
   const credId = credentialId.trim()
   if (!addr || !credId) return []
-  const network = await getActiveNetwork()
+  const network = await liveNetwork()
   const byAddress = await readAccountSignersMap(network)
   const current = byAddress[addr] ?? []
   const next = current.filter((s) => s.credentialId !== credId)
@@ -624,7 +723,7 @@ export async function deleteAccount(accountId: string): Promise<{
   activeAccountId?: string
   removedLastAccount: boolean
 }> {
-  const network = await getActiveNetwork()
+  const network = await liveNetwork()
   const { accounts, activeAccountId } = await readAccountsBucket(network)
   const target = accounts.find((a) => a.id === accountId)
   if (!target) {
@@ -648,11 +747,11 @@ export async function deleteAccount(accountId: string): Promise<{
   }
 
   if (nextAccounts.length === 0) {
-    const res = await chrome.storage.local.get([STORAGE_KEYS.setupStateByNetwork])
-    const setupByNetwork =
-      (res[STORAGE_KEYS.setupStateByNetwork] as SetupStateByNetwork | undefined) ?? {}
+    const key = await scopedKey(ENV_SUFFIX.setupStateByNetwork)
+    const res = await chrome.storage.local.get([key])
+    const setupByNetwork = (res[key] as SetupStateByNetwork | undefined) ?? {}
     await chrome.storage.local.set({
-      [STORAGE_KEYS.setupStateByNetwork]: { ...setupByNetwork, [network]: 'new' },
+      [key]: { ...setupByNetwork, [network]: 'new' },
     })
     await chrome.storage.local.remove([STORAGE_KEYS.legacyAccountPublicKey])
   }
@@ -665,7 +764,7 @@ export async function deleteAccount(accountId: string): Promise<{
 }
 
 export async function renameAccount(args: { accountId: string; label?: string }) {
-  const network = await getActiveNetwork()
+  const network = await liveNetwork()
   const { accounts, activeAccountId } = await readAccountsBucket(network)
   const nextAccounts = accounts.map((a) =>
     a.id === args.accountId ? { ...a, label: args.label } : a
@@ -675,17 +774,10 @@ export async function renameAccount(args: { accountId: string; label?: string })
 
 export async function getSetupStateForNetwork(network: Network): Promise<string | undefined> {
   await ensureAccountsPartitionMigrated()
-  const res = await chrome.storage.local.get([
-    STORAGE_KEYS.setupStateByNetwork,
-    STORAGE_KEYS.setupState,
-  ])
-  const byNetwork = (res[STORAGE_KEYS.setupStateByNetwork] as SetupStateByNetwork | undefined) ?? {}
-  if (byNetwork[network] !== undefined) return byNetwork[network]
-  // Legacy flat key only applies to testnet.
-  if (network === 'testnet') {
-    return res[STORAGE_KEYS.setupState] as string | undefined
-  }
-  return undefined
+  const key = await scopedKey(ENV_SUFFIX.setupStateByNetwork)
+  const res = await chrome.storage.local.get([key])
+  const byNetwork = (res[key] as SetupStateByNetwork | undefined) ?? {}
+  return byNetwork[network]
 }
 
 export async function setSetupStateForNetwork(
@@ -694,10 +786,11 @@ export async function setSetupStateForNetwork(
   accountPublicKey?: string
 ): Promise<void> {
   await ensureAccountsPartitionMigrated()
-  const res = await chrome.storage.local.get([STORAGE_KEYS.setupStateByNetwork])
-  const byNetwork = (res[STORAGE_KEYS.setupStateByNetwork] as SetupStateByNetwork | undefined) ?? {}
+  const key = await scopedKey(ENV_SUFFIX.setupStateByNetwork)
+  const res = await chrome.storage.local.get([key])
+  const byNetwork = (res[key] as SetupStateByNetwork | undefined) ?? {}
   const patch: Record<string, unknown> = {
-    [STORAGE_KEYS.setupStateByNetwork]: { ...byNetwork, [network]: setupState },
+    [key]: { ...byNetwork, [network]: setupState },
   }
   if (accountPublicKey !== undefined) {
     patch[STORAGE_KEYS.legacyAccountPublicKey] = accountPublicKey
@@ -784,22 +877,25 @@ export async function clearPendingDappRequests() {
 }
 
 export async function clearSession() {
+  await ensureAccountsPartitionMigrated()
   await clearAllMnemonicVaultRecords()
   await clearAllDappRequests()
   await clearAllActivityHistory()
+  const { env } = await resolveLiveStorage()
   await chrome.storage.local.remove([
-    STORAGE_KEYS.accounts,
-    STORAGE_KEYS.activeAccountId,
-    STORAGE_KEYS.accountsByNetwork,
-    STORAGE_KEYS.activeAccountIdByNetwork,
-    STORAGE_KEYS.setupState,
-    STORAGE_KEYS.setupStateByNetwork,
+    envStorageKey(env, ENV_SUFFIX.accountsByNetwork),
+    envStorageKey(env, ENV_SUFFIX.activeAccountIdByNetwork),
+    envStorageKey(env, ENV_SUFFIX.setupStateByNetwork),
+    envStorageKey(env, ENV_SUFFIX.removedAccounts),
+    envStorageKey(env, ENV_SUFFIX.accountSigners),
+    envStorageKey(env, ENV_SUFFIX.multisigPendingInvites),
+    envStorageKey(env, ENV_SUFFIX.multisigDraftMeta),
+    envStorageKey(env, ENV_SUFFIX.multisigProposalsBannerDismissed),
+    envStorageKey(env, ENV_SUFFIX.mnemonicVault),
     STORAGE_KEYS.legacyAccountPublicKey,
     STORAGE_KEYS.dappPermissions,
     STORAGE_KEYS.dappDisconnectedOrigins,
     STORAGE_KEYS.pendingDappRequests,
-    STORAGE_KEYS.removedAccounts,
-    STORAGE_KEYS.accountSigners,
   ])
 }
 

@@ -6,8 +6,17 @@ import { getActiveNetwork } from './network/config'
 export const ACTIVITY_HISTORY_PREFIX = 'latch.activityHistory.'
 export const MAX_ACTIVITY_ENTRIES = 200
 
+async function activityEnvPrefix(): Promise<string> {
+  const res = await chrome.storage.local.get(['latch.developerMode'])
+  return res['latch.developerMode'] === true ? 'latch.env.dev.' : 'latch.env.prod.'
+}
+
 export function activityHistoryStorageKey(network: string, accountId: string): string {
   return `${ACTIVITY_HISTORY_PREFIX}${network}.${accountId}.v1`
+}
+
+async function namespacedActivityHistoryKey(network: string, accountId: string): Promise<string> {
+  return `${await activityEnvPrefix()}activityHistory.${network}.${accountId}.v1`
 }
 
 export function activityRowKey(row: SmartAccountTransactionRow): string {
@@ -45,7 +54,7 @@ export async function readActivityHistory(
 ): Promise<SmartAccountTransactionRow[]> {
   try {
     const network = await getActiveNetwork()
-    const key = activityHistoryStorageKey(network, accountId)
+    const key = await namespacedActivityHistoryKey(network, accountId)
     const r = await chrome.storage.local.get([key])
     const raw = r[key]
     if (!Array.isArray(raw)) return []
@@ -60,17 +69,18 @@ export async function writeActivityHistory(
   items: SmartAccountTransactionRow[]
 ): Promise<void> {
   const network = await getActiveNetwork()
-  const key = activityHistoryStorageKey(network, accountId)
+  const key = await namespacedActivityHistoryKey(network, accountId)
   await chrome.storage.local.set({ [key]: items.slice(0, MAX_ACTIVITY_ENTRIES) })
 }
 
 export async function clearActivityHistoryForAccount(accountId: string): Promise<void> {
   const network = await getActiveNetwork()
-  await chrome.storage.local.remove([activityHistoryStorageKey(network, accountId)])
+  await chrome.storage.local.remove([await namespacedActivityHistoryKey(network, accountId)])
 }
 
 export async function clearAllActivityHistory(): Promise<void> {
+  const prefix = `${await activityEnvPrefix()}activityHistory.`
   const all = await chrome.storage.local.get(null)
-  const keys = Object.keys(all).filter((k) => k.startsWith(ACTIVITY_HISTORY_PREFIX))
+  const keys = Object.keys(all).filter((k) => k.startsWith(prefix))
   if (keys.length > 0) await chrome.storage.local.remove(keys)
 }

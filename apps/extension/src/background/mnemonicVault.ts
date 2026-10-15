@@ -1,6 +1,12 @@
 import { randomBytes } from '@noble/hashes/utils.js'
 
-const VAULT_KEY = 'latch.mnemonicVault.v1' as const
+const VAULT_SUFFIX = 'mnemonicVault.v1'
+
+async function vaultStorageKey(): Promise<string> {
+  const res = await chrome.storage.local.get(['latch.developerMode'])
+  const env = res['latch.developerMode'] === true ? 'dev' : 'prod'
+  return `latch.env.${env}.${VAULT_SUFFIX}`
+}
 
 export type MnemonicVaultPayloadV1 = {
   v: 1
@@ -102,27 +108,30 @@ export async function decryptMnemonicFromVault(
 }
 
 export async function saveMnemonicVaultRecord(record: MnemonicVaultPayloadV1): Promise<void> {
-  const res = await chrome.storage.local.get([VAULT_KEY])
-  const prev = (res[VAULT_KEY] as MnemonicVaultPayloadV1[] | undefined) ?? []
+  const key = await vaultStorageKey()
+  const res = await chrome.storage.local.get([key])
+  const prev = (res[key] as MnemonicVaultPayloadV1[] | undefined) ?? []
   const next = [...prev.filter((r) => r.accountId !== record.accountId), record]
-  await chrome.storage.local.set({ [VAULT_KEY]: next })
+  await chrome.storage.local.set({ [key]: next })
 }
 
 export async function loadMnemonicVaultRecord(
   accountId: string
 ): Promise<MnemonicVaultPayloadV1 | undefined> {
-  const res = await chrome.storage.local.get([VAULT_KEY])
-  const list = (res[VAULT_KEY] as MnemonicVaultPayloadV1[] | undefined) ?? []
+  const key = await vaultStorageKey()
+  const res = await chrome.storage.local.get([key])
+  const list = (res[key] as MnemonicVaultPayloadV1[] | undefined) ?? []
   return list.find((r) => r.accountId === accountId)
 }
 
 export async function removeMnemonicVaultForAccount(accountId: string): Promise<void> {
-  const res = await chrome.storage.local.get([VAULT_KEY])
-  const list = (res[VAULT_KEY] as MnemonicVaultPayloadV1[] | undefined) ?? []
+  const key = await vaultStorageKey()
+  const res = await chrome.storage.local.get([key])
+  const list = (res[key] as MnemonicVaultPayloadV1[] | undefined) ?? []
   const next = list.filter((r) => r.accountId !== accountId)
-  await chrome.storage.local.set({ [VAULT_KEY]: next })
+  await chrome.storage.local.set({ [key]: next })
 }
 
 export async function clearAllMnemonicVaultRecords(): Promise<void> {
-  await chrome.storage.local.remove([VAULT_KEY])
+  await chrome.storage.local.remove([await vaultStorageKey()])
 }
