@@ -62,6 +62,10 @@ const STORAGE_KEYS = {
    * would put two identically named credentials in the user's picker.
    */
   passkeySeq: 'latch.passkeySeq',
+  /** Shared by popup and side panel. Selects the staging latch-api base URL. */
+  developerMode: 'latch.developerMode',
+  /** Last successful latch-api response while developer mode is on. Not account data. */
+  developerModeLastOkAt: 'latch.developerModeLastOkAt',
 } as const
 
 type DappPermissionsStore = Record<string, DappPermission[] | undefined>
@@ -802,4 +806,27 @@ export async function clearSession() {
 /** Reset migration latch for tests. */
 export function resetAccountsPartitionMigrationForTests(): void {
   accountsMigratePromise = null
+}
+
+export async function getDeveloperMode(): Promise<boolean> {
+  const res = await chrome.storage.local.get([STORAGE_KEYS.developerMode])
+  return res[STORAGE_KEYS.developerMode] === true
+}
+
+export async function setDeveloperMode(enabled: boolean): Promise<void> {
+  await chrome.storage.local.set({ [STORAGE_KEYS.developerMode]: enabled })
+}
+
+export async function getDeveloperModeLastOkAt(): Promise<number | undefined> {
+  const res = await chrome.storage.local.get([STORAGE_KEYS.developerModeLastOkAt])
+  const value = res[STORAGE_KEYS.developerModeLastOkAt]
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+export async function setDeveloperModeLastOkAt(at: number): Promise<void> {
+  await chrome.storage.local.set({ [STORAGE_KEYS.developerModeLastOkAt]: at })
+}
+
+export async function clearDeveloperModeLastOkAt(): Promise<void> {
+  await chrome.storage.local.remove([STORAGE_KEYS.developerModeLastOkAt])
 }

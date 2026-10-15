@@ -119,7 +119,7 @@ export async function persistWebauthnCeremony(
   kind: WebauthnSessionKind,
   opts: { sid?: string; challenge?: string }
 ): Promise<void> {
-  const baseUrl = latchApiBaseUrl()
+  const baseUrl = await latchApiBaseUrl()
   const chromeExtensionId = chrome.runtime?.id
   if (!chromeExtensionId || (!opts.sid && !opts.challenge)) return
 
@@ -143,7 +143,7 @@ export async function persistWebauthnSessionSid(
   kind: WebauthnSessionKind,
   challenge?: string
 ): Promise<void> {
-  const baseUrl = latchApiBaseUrl()
+  const baseUrl = await latchApiBaseUrl()
   const chromeExtensionId = chrome.runtime?.id
   if (!chromeExtensionId) return
 
@@ -167,7 +167,7 @@ export async function persistWebauthnSession(
   kind: WebauthnSessionKind,
   sidFromResponse?: string
 ): Promise<void> {
-  const baseUrl = latchApiBaseUrl()
+  const baseUrl = await latchApiBaseUrl()
   const sid = sidFromResponse ?? (await readSidCookieWithRetry(baseUrl))
   if (!sid) return
   await persistWebauthnSessionSid(sid, kind)
@@ -176,7 +176,7 @@ export async function persistWebauthnSession(
 export async function getWebauthnSession(
   expectedKind: WebauthnSessionKind
 ): Promise<WebauthnSession | undefined> {
-  const baseUrl = latchApiBaseUrl()
+  const baseUrl = await latchApiBaseUrl()
   try {
     const bag = await chrome.storage.session.get(WEBAUTHN_SESSION_KEY)
     const session = bag[WEBAUTHN_SESSION_KEY] as WebauthnSession | undefined
@@ -212,7 +212,7 @@ export const captureSidAfterBegin = captureSid
 export async function webauthnSessionCookieHeader(
   expectedKind: WebauthnSessionKind
 ): Promise<Record<string, string>> {
-  const baseUrl = latchApiBaseUrl()
+  const baseUrl = await latchApiBaseUrl()
   const session = await getWebauthnSession(expectedKind)
   if (session?.sid) return { Cookie: `sid=${session.sid}` }
   const sid = await readSidCookie(baseUrl)
@@ -238,5 +238,5 @@ export async function clearWebauthnSession(): Promise<void> {
  */
 export async function clearLatchApiSession(): Promise<void> {
   await clearWebauthnSession()
-  await clearLatchSidCookie(latchApiBaseUrl())
+  await clearLatchSidCookie(await latchApiBaseUrl())
 }

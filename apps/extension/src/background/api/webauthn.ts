@@ -89,7 +89,7 @@ async function passkeyBegin(
   kind: 'registration' | 'authentication',
   extra: Record<string, unknown> = {}
 ): Promise<BackendWebauthnBeginResponse> {
-  const baseUrl = latchApiBaseUrl()
+  const baseUrl = await latchApiBaseUrl()
   const { res, data } = await latchFetchAbsoluteWithResponse<BackendWebauthnBeginResponse>(
     `${baseUrl}${path}`,
     {
@@ -111,7 +111,7 @@ async function passkeyFinish<TRes>(
   kind: 'registration' | 'authentication',
   req: object
 ): Promise<TRes> {
-  const baseUrl = latchApiBaseUrl()
+  const baseUrl = await latchApiBaseUrl()
   const cookieHeaders = await webauthnSessionCookieHeader(kind)
   try {
     const { res, data } = await latchFetchAbsoluteWithResponse<TRes>(`${baseUrl}${path}`, {

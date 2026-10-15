@@ -855,6 +855,8 @@ export type MessageType =
   | 'RUN_EXTERNAL_SIGN_FLOW'
   | 'GET_ACTIVE_NETWORK'
   | 'SET_ACTIVE_NETWORK'
+  | 'GET_DEVELOPER_MODE'
+  | 'SET_DEVELOPER_MODE'
   | 'PING_EXTENSION'
   | 'CANCEL_REQUEST'
   | 'GET_SWAP_TOKEN_CATALOG'
@@ -1012,6 +1014,8 @@ export type BackgroundRequestPayloadByType = {
   RUN_EXTERNAL_SIGN_FLOW: import('./externalSign').RunExternalSignFlowRequest
   GET_ACTIVE_NETWORK: undefined
   SET_ACTIVE_NETWORK: { network: Network }
+  GET_DEVELOPER_MODE: undefined
+  SET_DEVELOPER_MODE: { enabled: boolean }
   PING_EXTENSION: undefined
   CANCEL_REQUEST: CancelRequest
   GET_SWAP_TOKEN_CATALOG: import('./swap').GetSwapTokenCatalogRequest
@@ -1218,6 +1222,8 @@ export type BackgroundResponseDataByType = {
   RUN_EXTERNAL_SIGN_FLOW: import('./externalSign').ExternalSignResult
   GET_ACTIVE_NETWORK: { network: Network; networkLabel: string }
   SET_ACTIVE_NETWORK: { network: Network; networkLabel: string }
+  GET_DEVELOPER_MODE: { enabled: boolean }
+  SET_DEVELOPER_MODE: { enabled: boolean }
   PING_EXTENSION: { connected: true }
   CANCEL_REQUEST: undefined
   GET_SWAP_TOKEN_CATALOG: import('./swap').GetSwapTokenCatalogResponse
