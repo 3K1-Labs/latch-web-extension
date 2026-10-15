@@ -1,6 +1,6 @@
 /**
  * Single source of truth for active Stellar network + Horizon/Soroban endpoints.
- * Active network: latch.network → else PLASMO_PUBLIC_STELLAR_NETWORK → else testnet.
+ * The active network is the deployment: developer mode is testnet, otherwise mainnet.
  */
 
 import { Networks } from '@stellar/stellar-sdk'
@@ -93,19 +93,7 @@ export function setCachedActiveNetwork(network: Network): void {
 
 export async function getActiveNetwork(): Promise<Network> {
   const res = await chrome.storage.local.get(['latch.developerMode'])
-  if (res['latch.developerMode'] === true) {
-    cachedActiveNetwork = 'testnet'
-    return 'testnet'
-  }
-  if (res['latch.developerMode'] === false) {
-    cachedActiveNetwork = 'mainnet'
-    return 'mainnet'
-  }
-  if (cachedActiveNetwork) return cachedActiveNetwork
-  const storedRes = await chrome.storage.local.get([STORAGE_KEY_NETWORK])
-  const stored = storedRes[STORAGE_KEY_NETWORK]
-  const network: Network =
-    stored === 'mainnet' || stored === 'testnet' ? stored : getStellarNetworkFromEnv()
+  const network: Network = res['latch.developerMode'] === true ? 'testnet' : 'mainnet'
   cachedActiveNetwork = network
   return network
 }

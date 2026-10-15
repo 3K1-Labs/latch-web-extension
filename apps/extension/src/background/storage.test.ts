@@ -23,17 +23,14 @@ import {
   setDeveloperMode,
   upsertAccountSignerRecord,
 } from './storage'
-import {
-  clearCachedActiveNetwork,
-  setActiveNetwork,
-  setCachedActiveNetwork,
-} from './network/config'
+import { clearCachedActiveNetwork } from './network/config'
 import { applyDeveloperMode } from './api/developerMode'
 
 describe('background/storage', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     resetAccountsPartitionMigrationForTests()
-    setCachedActiveNetwork('testnet')
+    clearCachedActiveNetwork()
+    await setDeveloperMode(true)
   })
 
   it('createAccount persists account and sets activeAccountId on first insert', async () => {
@@ -219,7 +216,7 @@ describe('background/storage', () => {
       await deleteAccount(accounts[0]!.id)
       expect(await getRemovedAccountAddresses()).toContain('CTESTNET')
 
-      await setActiveNetwork('mainnet')
+      await setDeveloperMode(false)
       expect(await getRemovedAccountAddresses()).toHaveLength(0)
     })
 
@@ -284,10 +281,10 @@ describe('background/storage', () => {
 
     it('partitions records per network', async () => {
       await upsertAccountSignerRecord('CWALLET', backupSigner)
-      await setActiveNetwork('mainnet')
+      await setDeveloperMode(false)
       expect(await getAccountSignerRecords('CWALLET')).toEqual([])
 
-      await setActiveNetwork('testnet')
+      await setDeveloperMode(true)
       expect(await getAccountSignerRecords('CWALLET')).toHaveLength(1)
     })
 
@@ -407,7 +404,7 @@ describe('background/storage', () => {
         passkeyKeyDataHex: 'aa',
       })
       await createAccount({ mode: 'multisig', smartAccountAddress: 'CTESTNETMULTI' })
-      await setActiveNetwork('mainnet')
+      await setDeveloperMode(false)
       await createAccount({
         mode: 'passkey',
         smartAccountAddress: 'CMAINNET1',

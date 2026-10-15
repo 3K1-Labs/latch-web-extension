@@ -24,8 +24,9 @@ vi.mock('../storage', () => ({
 }))
 
 vi.mock('../network/config', () => ({
-  sorobanRpcUrlFromEnv: () => 'https://soroban-testnet.stellar.org',
-  networkPassphraseFromEnv: () => 'Test SDF Network ; September 2015',
+  getActiveNetwork: async () => 'testnet' as const,
+  sorobanRpcUrlFor: () => 'https://soroban-testnet.stellar.org',
+  networkPassphraseFor: () => 'Test SDF Network ; September 2015',
 }))
 
 import { addExistingMultisigAccount, chainSignersIncludeLocalSigner } from './addExistingAccount'

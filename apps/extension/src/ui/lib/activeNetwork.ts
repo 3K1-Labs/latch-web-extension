@@ -31,19 +31,5 @@ export async function fetchActiveNetwork(): Promise<ActiveNetworkInfo> {
       networkLabel: res.data.networkLabel ?? networkLabelFor(res.data.network),
     }
   }
-  return { network: 'testnet', networkLabel: networkLabelFor('testnet') }
-}
-
-export async function setActiveNetworkInBackground(network: Network): Promise<ActiveNetworkInfo> {
-  const res = await sendToBackground<{ network: Network }, ActiveNetworkInfo>({
-    type: 'SET_ACTIVE_NETWORK',
-    payload: { network },
-  })
-  if (!res.ok || !res.data?.network) {
-    throw new Error(res.error?.message ?? 'Failed to switch network')
-  }
-  return {
-    network: res.data.network,
-    networkLabel: res.data.networkLabel ?? networkLabelFor(res.data.network),
-  }
+  return { network: 'mainnet', networkLabel: networkLabelFor('mainnet') }
 }

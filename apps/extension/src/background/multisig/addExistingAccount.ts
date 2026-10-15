@@ -18,7 +18,7 @@ import { StrKey } from '@stellar/stellar-sdk'
 import type { AddExistingMultisigAccountResponse, StoredAccount } from '@latch/types'
 
 import { listMultisigAccounts } from '../backend'
-import { networkPassphraseFromEnv, sorobanRpcUrlFromEnv } from '../network/config'
+import { getActiveNetwork, networkPassphraseFor, sorobanRpcUrlFor } from '../network/config'
 import {
   createMultisigAccount,
   getAccounts,
@@ -124,9 +124,10 @@ export async function addExistingMultisigAccount(args: {
   if (!verifiedVia) {
     let rule
     try {
+      const network = await getActiveNetwork()
       rule = await fetchDefaultContextRule({
-        rpcUrl: sorobanRpcUrlFromEnv(),
-        networkPassphrase: networkPassphraseFromEnv(),
+        rpcUrl: sorobanRpcUrlFor(network),
+        networkPassphrase: networkPassphraseFor(network),
         accountAddress: address,
       })
     } catch {

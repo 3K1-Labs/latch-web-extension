@@ -148,21 +148,18 @@ describe('background/backend', () => {
     expect(bodies[0]).toMatchObject({
       response: expect.objectContaining({ id: 'Y2g' }),
       chromeExtensionId: 'extid-xyz',
-      network: expect.stringMatching(/^(testnet|mainnet)$/),
     })
+    expect(bodies[0]?.network).toBeUndefined()
     expect(bodies[1]).toMatchObject({
       response: expect.objectContaining({ id: 'Y2g' }),
       chromeExtensionId: 'extid-xyz',
-      network: expect.stringMatching(/^(testnet|mainnet)$/),
     })
+    expect(bodies[1]?.network).toBeUndefined()
 
     vi.unstubAllGlobals()
   })
 
-  it('submitTxWebauthn sends chromeExtensionId and active network', async () => {
-    const { clearCachedActiveNetwork, setCachedActiveNetwork } = await import('./network/config')
-    setCachedActiveNetwork('mainnet')
-
+  it('submitTxWebauthn sends chromeExtensionId and omits network', async () => {
     vi.stubGlobal('chrome', {
       ...globalThis.chrome,
       runtime: { ...globalThis.chrome.runtime, id: 'ext-submit' },
@@ -193,10 +190,9 @@ describe('background/backend', () => {
     expect(bodies[0]).toMatchObject({
       txXdr: 'x',
       chromeExtensionId: 'ext-submit',
-      network: 'mainnet',
     })
+    expect(bodies[0]?.network).toBeUndefined()
 
-    clearCachedActiveNetwork()
     vi.unstubAllGlobals()
   })
 
@@ -270,8 +266,8 @@ describe('background/backend', () => {
       amount: '2.5',
       assetId: 'usdc',
       signerG: 'G123',
-      network: expect.stringMatching(/^(testnet|mainnet)$/),
     })
+    expect(bodies[0]?.network).toBeUndefined()
 
     vi.unstubAllGlobals()
   })

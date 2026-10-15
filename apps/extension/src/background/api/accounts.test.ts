@@ -1,22 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { clearCachedActiveNetwork, setCachedActiveNetwork } from '../network/config'
 import { getBackendAccounts } from './accounts'
 
 describe('getBackendAccounts', () => {
   beforeEach(() => {
-    clearCachedActiveNetwork()
     vi.stubEnv('PLASMO_PUBLIC_LATCH_API_URL', 'https://latch-backend.onrender.com')
   })
 
   afterEach(() => {
-    clearCachedActiveNetwork()
     vi.unstubAllEnvs()
     vi.unstubAllGlobals()
   })
 
-  it('requests the active network and keeps credentialId', async () => {
-    setCachedActiveNetwork('mainnet')
+  it('omits network and keeps credentialId', async () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,
       status: 200,
@@ -30,13 +26,12 @@ describe('getBackendAccounts', () => {
     await getBackendAccounts({ credentialId: 'cred-a' })
 
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://latch-backend.onrender.com/api/accounts?network=mainnet&credentialId=cred-a',
+      'https://latch-backend.onrender.com/api/accounts?credentialId=cred-a',
       expect.objectContaining({ method: 'GET' })
     )
   })
 
-  it('keeps an explicit network over the active one', async () => {
-    setCachedActiveNetwork('mainnet')
+  it('omits the query when there is no credential id', async () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,
       status: 200,
@@ -47,10 +42,10 @@ describe('getBackendAccounts', () => {
     }))
     vi.stubGlobal('fetch', fetchMock)
 
-    await getBackendAccounts({ network: 'testnet' })
+    await getBackendAccounts()
 
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://latch-backend.onrender.com/api/accounts?network=testnet',
+      'https://latch-backend.onrender.com/api/accounts',
       expect.objectContaining({ method: 'GET' })
     )
   })

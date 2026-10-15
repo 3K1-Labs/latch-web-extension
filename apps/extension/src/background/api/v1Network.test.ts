@@ -52,8 +52,8 @@ describe('V1 Fund path network propagation', () => {
       wallet: 'CABC',
       key_type: 'passkey',
       chromeExtensionId: 'ext-id-abc',
-      network: 'mainnet',
     })
+    expect(body.network).toBeUndefined()
   })
 
   it('sends active network on sign-in', async () => {
@@ -82,11 +82,11 @@ describe('V1 Fund path network propagation', () => {
 
     const [, init] = fetchMock.mock.calls[0]!
     const body = JSON.parse(String((init as RequestInit).body))
-    expect(body.network).toBe('mainnet')
+    expect(body.network).toBeUndefined()
     expect(body.chromeExtensionId).toBe('ext-id-abc')
   })
 
-  it('preserves an explicit network on sign-in', async () => {
+  it('strips an explicit network on sign-in', async () => {
     fetchMock.mockResolvedValue({
       ok: true,
       status: 200,
@@ -108,7 +108,7 @@ describe('V1 Fund path network propagation', () => {
     })
 
     const body = JSON.parse(String((fetchMock.mock.calls[0]![1] as RequestInit).body))
-    expect(body.network).toBe('testnet')
+    expect(body.network).toBeUndefined()
   })
 
   it('sends active network on deposit-intent', async () => {
@@ -159,7 +159,6 @@ describe('V1 Fund path network propagation', () => {
     const body = JSON.parse(String((fetchMock.mock.calls[0]![1] as RequestInit).body))
     expect(body).toEqual({
       smart_account_address: 'CABC',
-      network: 'mainnet',
     })
   })
 
@@ -215,7 +214,6 @@ describe('V1 Fund path network propagation', () => {
     const body = JSON.parse(String((fetchMock.mock.calls[0]![1] as RequestInit).body))
     expect(body).toEqual({
       smart_account_address: 'CABC',
-      network: 'mainnet',
       provider: 'transak',
       crypto_currency: 'XLM',
     })

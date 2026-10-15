@@ -7,7 +7,6 @@ import type {
   ListMultisigProposalsResponse,
 } from '@latch/types'
 
-import { getActiveNetwork } from '../network/config'
 import { latchFetch } from './client'
 import { latchExtensionJsonBody } from './webauthn'
 import { normalizeMultisigProposalDetail } from './multisigNormalize'
@@ -18,7 +17,6 @@ export async function listMultisigProposals(
 ): Promise<ListMultisigProposalsResponse> {
   const params = new URLSearchParams({
     account: smartAccountAddress,
-    network: await getActiveNetwork(),
   })
   return await latchFetch<ListMultisigProposalsResponse>(
     `/api/multisig/proposals?${params.toString()}`,
@@ -36,9 +34,8 @@ export async function createMultisigProposal(
 }
 
 export async function getMultisigProposal(proposalId: string): Promise<MultisigProposalDetail> {
-  const params = new URLSearchParams({ network: await getActiveNetwork() })
   const raw = await latchFetch<unknown>(
-    `/api/multisig/proposals/${encodeURIComponent(proposalId)}?${params.toString()}`,
+    `/api/multisig/proposals/${encodeURIComponent(proposalId)}`,
     { method: 'GET' }
   )
   return normalizeMultisigProposalDetail(raw)

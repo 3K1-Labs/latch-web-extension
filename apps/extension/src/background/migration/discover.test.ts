@@ -2,8 +2,11 @@ import { Asset, Keypair, Networks } from '@stellar/stellar-sdk'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { BackendError } from '../backend'
-import { setCachedActiveNetwork } from '../network/config'
-import { createAccount, resetAccountsPartitionMigrationForTests } from '../storage'
+import {
+  createAccount,
+  resetAccountsPartitionMigrationForTests,
+  setDeveloperMode,
+} from '../storage'
 import { clearDiscoveryCache } from './discoveryCache'
 import { runMigrationDiscover } from './discover'
 
@@ -19,7 +22,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 describe('runMigrationDiscover', () => {
   beforeEach(async () => {
     resetAccountsPartitionMigrationForTests()
-    setCachedActiveNetwork('testnet')
+    await setDeveloperMode(true)
     clearDiscoveryCache()
     vi.restoreAllMocks()
   })

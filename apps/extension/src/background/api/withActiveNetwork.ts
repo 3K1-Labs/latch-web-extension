@@ -1,13 +1,10 @@
-import type { Network } from '@latch/types'
-
-import { getActiveNetwork } from '../network/config'
-
-/** Merge active Stellar network into an API body (preserve explicit mainnet/testnet). */
-export async function withActiveNetwork<T extends object>(
-  req: T
-): Promise<T & { network: Network }> {
-  const existing = (req as { network?: unknown }).network
-  const network: Network =
-    existing === 'mainnet' || existing === 'testnet' ? existing : await getActiveNetwork()
-  return { ...req, network }
+/**
+ * Drop a caller-supplied `network`. The deployment's network is implied:
+ * an omitted field is accepted, and the other network is rejected.
+ */
+export async function withActiveNetwork<T extends object>(req: T): Promise<Omit<T, 'network'>> {
+  if (!('network' in req)) return req
+  const copy = { ...req } as T & { network?: unknown }
+  delete copy.network
+  return copy
 }

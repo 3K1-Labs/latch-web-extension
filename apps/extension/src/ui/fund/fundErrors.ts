@@ -23,13 +23,12 @@ export function formatFundError(e?: SerializableError, opts?: FormatFundErrorOpt
   const message = typeof e.message === 'string' ? e.message.trim() : ''
 
   if (
+    code === 'deployment_network_mismatch' ||
+    code === 'NETWORK_MISMATCH' ||
     code === 'network_mismatch' ||
     /issued a .+ challenge while the wallet is on/i.test(message)
   ) {
-    return (
-      message ||
-      'The Latch API challenge network does not match your active wallet network. Switch network or try again.'
-    )
+    return 'Latch is pointed at the wrong deployment.'
   }
 
   if (code === 'moonpay_network_mismatch') {
