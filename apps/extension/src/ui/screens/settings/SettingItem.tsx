@@ -4,7 +4,7 @@ import chevronRightUrl from 'url:../../../../assets/home/icon-chevron-right.svg'
 
 interface SettingItemProps {
   icon: React.ReactNode
-  label: string
+  label: React.ReactNode
   onClick?: () => void
   rightElement?: React.ReactNode
   danger?: boolean

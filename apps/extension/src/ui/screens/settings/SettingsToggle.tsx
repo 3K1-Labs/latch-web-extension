@@ -14,7 +14,10 @@ export function SettingsToggle({ checked, onChange, ariaLabel = 'Toggle' }: Sett
       aria-checked={checked}
       aria-label={ariaLabel}
       onClick={() => onChange(!checked)}
-      className="relative h-7 w-16 shrink-0 overflow-hidden rounded-full bg-[#383838] outline-none"
+      className={[
+        'relative h-7 w-16 shrink-0 overflow-hidden rounded-full outline-none',
+        checked ? 'bg-[#FFAD00]' : 'bg-[#383838]',
+      ].join(' ')}
     >
       <span
         className={[

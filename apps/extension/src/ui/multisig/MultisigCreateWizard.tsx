@@ -411,7 +411,7 @@ export function MultisigCreateWizard({
         onCopyAddress={() => {
           const addr = wizard.smartAccountAddress?.trim()
           if (!addr) return
-          void navigator.clipboard.writeText(addr)
+          return navigator.clipboard.writeText(addr)
         }}
         onShareAddress={() => {
           const addr = wizard.smartAccountAddress?.trim()

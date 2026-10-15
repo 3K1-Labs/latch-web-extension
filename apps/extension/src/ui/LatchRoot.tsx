@@ -99,6 +99,8 @@ export function LatchRoot({ surface }: { surface: Surface }) {
     setActiveAccountId,
     activeNetwork,
     networkLabel,
+    developerMode,
+    refreshDeployment,
     activeAccount,
     activeAccountLabel,
     needsMnemonicUnlock,
@@ -333,6 +335,14 @@ export function LatchRoot({ surface }: { surface: Surface }) {
           ? 'explore'
           : 'home'
 
+  const showDeveloperBanner =
+    developerMode &&
+    (page === 'settings' ||
+      route === 'home' ||
+      route === 'send' ||
+      route === 'swap' ||
+      route === 'history')
+
   return (
     <div className={['relative bg-bg text-fg', containerClass].join(' ')}>
       <div
@@ -342,6 +352,11 @@ export function LatchRoot({ surface }: { surface: Surface }) {
           showMainBottomNav ? 'pb-0' : 'pb-6',
         ].join(' ')}
       >
+        {showDeveloperBanner ? (
+          <p className="relative z-[60] -mx-6 mb-2 bg-[#222121] px-6 py-2 text-center text-sm text-[#FFAD00]">
+            Developer mode — testnet, funds have no value
+          </p>
+        ) : null}
         {showTopHeader ? (
           <div className="flex items-center justify-between gap-2">
             <AccountMenu
@@ -639,6 +654,15 @@ export function LatchRoot({ surface }: { surface: Surface }) {
                           activeAccount?.mode === 'multisig' ? multisigPendingCount : 0
                         }
                         networkLabel={networkLabel}
+                        developerModeEnabled={developerMode}
+                        onDeveloperModeApplied={async () => {
+                          try {
+                            await refreshDeployment()
+                            await refreshAccounts()
+                          } catch (e) {
+                            logLatchError('developer-mode:refresh', e)
+                          }
+                        }}
                         onClose={() => setPage('main')}
                         onLogout={logout}
                       />

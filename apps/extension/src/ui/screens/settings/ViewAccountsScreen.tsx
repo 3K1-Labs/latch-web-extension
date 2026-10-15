@@ -3,10 +3,10 @@ import { Plus, Trash2 } from 'lucide-react'
 
 import type { AccountMode } from '@latch/types'
 
-import copyIconUrl from 'url:../../../../assets/home/icon-copy.svg'
 import multisigIconUrl from 'url:../../../../assets/home/settings-multisig.svg'
 import userAvatarUrl from 'url:../../../../assets/icons/user.png'
 
+import { CopyIconButton } from '../../components/CopyIconButton'
 import { AccountRadio } from './AccountRadio'
 import { AddAccountFlow } from './add-account/AddAccountFlow'
 import { AddAccountModal } from './AddAccountModal'
@@ -40,16 +40,6 @@ function AccountListRow({
   onSelect: () => void
   onRemove?: () => void
 }) {
-  const [copied, setCopied] = useState(false)
-  const timeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
-  const disabled = !address || address === '—'
-
-  React.useEffect(() => {
-    return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current)
-    }
-  }, [])
-
   return (
     <button
       type="button"
@@ -72,26 +62,7 @@ function AccountListRow({
             <span className="truncate text-sm tracking-[-0.28px] text-[#b3b3b3]">
               {truncateAddress(address)}
             </span>
-            <button
-              type="button"
-              disabled={disabled}
-              aria-label={copied ? 'Copied' : 'Copy address'}
-              className="inline-flex size-4 shrink-0 items-center justify-center disabled:opacity-30"
-              onClick={(e) => {
-                e.stopPropagation()
-                if (disabled) return
-                void navigator.clipboard.writeText(address).then(() => {
-                  setCopied(true)
-                  if (timeoutRef.current) clearTimeout(timeoutRef.current)
-                  timeoutRef.current = setTimeout(() => {
-                    setCopied(false)
-                    timeoutRef.current = null
-                  }, 2000)
-                })
-              }}
-            >
-              <img src={copyIconUrl} alt="" className="size-4" />
-            </button>
+            <CopyIconButton text={address} className="size-4" stopPropagation />
           </div>
         </div>
       </div>
