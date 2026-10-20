@@ -1,5 +1,5 @@
-import type { LatchSDK } from './index'
-import type { Network, SignTransactionRequest, SignTransactionResponse } from '@latch/types'
+import type { LatchSDK } from './index.js'
+import type { Network, SignTransactionRequest, SignTransactionResponse } from './publicTypes.js'
 
 type IOnChangeEvent = {
   address: string

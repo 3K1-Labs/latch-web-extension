@@ -1,5 +1,5 @@
 /**
- * @latch/sdk
+ * @uselatch/sdk
  * Public dapp-facing extension API — the `window.latch` surface.
  *
  * This is the ONLY interface dapps interact with.
@@ -18,9 +18,9 @@ import type {
   Sep0043SignTransactionResponse,
   SignTransactionRequest,
   SignTransactionResponse,
-} from '@latch/types'
+} from './publicTypes.js'
 
-import type { LatchPublicMethod } from './publicSurface'
+import type { LatchPublicMethod } from './publicSurface.js'
 
 export type LatchAccountChangedPayload = {
   publicKey: string
@@ -158,18 +158,19 @@ const _assertPublicSurface: {
 } = { sdk: true, windowLatch: true }
 void _assertPublicSurface
 
-export { LATCH_PUBLIC_METHODS } from './publicSurface'
-export type { LatchPublicMethod } from './publicSurface'
+export { LATCH_PUBLIC_METHODS } from './publicSurface.js'
+export type { LatchPublicMethod } from './publicSurface.js'
 
 export {
   LatchModule,
   LATCH_MODULE_ICON,
   LATCH_MODULE_ID,
   LATCH_MODULE_URL,
-} from './stellar-wallets-kit'
-export type { StellarWalletsKitModule, WalletKitNetworkOptions } from './stellar-wallets-kit'
+} from './stellar-wallets-kit.js'
+export type { StellarWalletsKitModule, WalletKitNetworkOptions } from './stellar-wallets-kit.js'
 
 export type {
+  Network,
   OpenSignRequestParams,
   Sep0043GetAddressResponse,
   Sep0043GetNetworkResponse,
@@ -177,4 +178,6 @@ export type {
   Sep0043SignTransactionResponse,
   Sep0043Error,
   Sep0043ErrorCode,
-} from '@latch/types'
+  SignTransactionRequest,
+  SignTransactionResponse,
+} from './publicTypes.js'

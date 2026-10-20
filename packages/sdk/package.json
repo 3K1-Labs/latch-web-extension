@@ -1,18 +1,39 @@
 {
-  "name": "@latch/sdk",
-  "version": "0.0.1",
-  "private": true,
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "name": "@uselatch/sdk",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "sideEffects": false,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/3K1-Labs/latch-web-extension.git",
+    "directory": "packages/sdk"
+  },
+  "homepage": "https://github.com/3K1-Labs/latch-web-extension/tree/main/packages/sdk#readme",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
   "scripts": {
     "lint": "eslint src --ext .ts,.tsx",
-    "build": "tsc --noEmit",
-    "test": "vitest run"
-  },
-  "dependencies": {
-    "@latch/types": "workspace:*"
+    "build": "node scripts/clean-dist.mjs && node scripts/copy-license.mjs && tsc -p tsconfig.json",
+    "test": "vitest run",
+    "prepublishOnly": "pnpm run lint && pnpm run test && pnpm run build && node scripts/verify-publish-tool.mjs && node scripts/verify-publish-manifest.mjs && node scripts/verify-esm.mjs"
   },
   "devDependencies": {
+    "@latch/types": "workspace:*",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"
   }

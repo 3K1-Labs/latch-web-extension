@@ -85,9 +85,9 @@ worker:
 Implementation lives under `apps/extension/src/background/` (e.g.
 `stellarMnemonic.ts`, `delegatedLocalSign.ts`, `mnemonicVault.ts`).
 
-## dApp API (`window.latch` / `@latch/sdk`)
+## dApp API (`window.latch` / `@uselatch/sdk`)
 
-Latch injects `window.latch` on every page. Use `@latch/sdk` (`getLatchSDK()`) as a thin
+Latch injects `window.latch` on every page. Use `@uselatch/sdk` (`getLatchSDK()`) as a thin
 wrapper in bundled dApps.
 
 **Latch-native (stable):**
@@ -122,12 +122,11 @@ wrapper in bundled dApps.
   codes.
 
 **Stellar Wallets Kit:** add the module explicitly until Latch is included in the kit’s
-default module list. The SDK is currently private, so partners should use a workspace or
-path import until it is published:
+default module list. Install the public package with `npm install @uselatch/sdk`:
 
 ```ts
 import { StellarWalletsKit, WalletNetwork } from '@creit.tech/stellar-wallets-kit'
-import { LatchModule } from '@latch/sdk'
+import { LatchModule } from '@uselatch/sdk'
 
 const kit = new StellarWalletsKit({
   network: WalletNetwork.TESTNET,
