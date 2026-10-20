@@ -99,9 +99,6 @@ importers:
         specifier: ^1.0.7
         version: 1.0.7(tailwindcss@3.4.19)
     devDependencies:
-      '@latch/sdk':
-        specifier: workspace:*
-        version: link:../../packages/sdk
       '@testing-library/react':
         specifier: ^16.3.3
         version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -114,6 +111,9 @@ importers:
       '@types/react-dom':
         specifier: ^18.3.5
         version: 18.3.7(@types/react@18.3.28)
+      '@uselatch/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
       autoprefixer:
         specifier: ^10.4.21
         version: 10.5.0(postcss@8.5.10)
@@ -140,11 +140,10 @@ importers:
         version: 5.9.3
 
   packages/sdk:
-    dependencies:
+    devDependencies:
       '@latch/types':
         specifier: workspace:*
         version: link:../types
-    devDependencies:
       typescript:
         specifier: ^5.8.3
         version: 5.9.3

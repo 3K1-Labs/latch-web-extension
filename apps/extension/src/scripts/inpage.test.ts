@@ -1,4 +1,4 @@
-import { LATCH_PUBLIC_METHODS } from '@latch/sdk'
+import { LATCH_PUBLIC_METHODS } from '@uselatch/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { installFakePageWindow, type FakePageWindow } from '../test/fakePageWindow'
@@ -270,7 +270,7 @@ describe('inpage window.latch', () => {
     expect(requestListenerDelta(win, baselineListeners)).toBe(0)
   })
 
-  it('exposes the same public methods as @latch/sdk (minus the install mark)', () => {
+  it('exposes the same public methods as @uselatch/sdk (minus the install mark)', () => {
     const latch = latchOf(win) as LatchProvider & Record<string, unknown>
     const publicKeys = Object.keys(latch)
       .filter((key) => key !== LATCH_PROVIDER_MARK)

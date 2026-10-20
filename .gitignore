@@ -1,5 +1,7 @@
 node_modules/
 dist/
+# Copied from the repo root LICENSE during the SDK build so the packed package includes it.
+packages/sdk/LICENSE
 .plasmo/
 .turbo/
 .next/

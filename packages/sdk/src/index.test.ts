@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import type { OpenSignRequestParams } from '@latch/types'
+import type { OpenSignRequestParams } from './publicTypes.js'
 
-import { getLatchSDK, LATCH_PUBLIC_METHODS } from './index'
+import { getLatchSDK, LATCH_PUBLIC_METHODS } from './index.js'
 
 const SAMPLE_PARAMS: OpenSignRequestParams = {
   network: 'testnet',
