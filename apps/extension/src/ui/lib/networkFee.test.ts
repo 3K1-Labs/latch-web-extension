@@ -47,9 +47,9 @@ describe('user-paid fee errors', () => {
   })
 
   it('never treats fee errors as missing send rules', () => {
-    expect(
-      isBuildSendMissingSetupError({ status: 400, code: 'insufficient_fee_balance' })
-    ).toBe(false)
+    expect(isBuildSendMissingSetupError({ status: 400, code: 'insufficient_fee_balance' })).toBe(
+      false
+    )
     expect(isBuildSendMissingSetupError({ status: 400, code: 'fee_rule_not_found' })).toBe(false)
     expect(isBuildSendMissingSetupError({ status: 400, code: 'internal_error' })).toBe(true)
   })
