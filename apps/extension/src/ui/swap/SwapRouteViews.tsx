@@ -9,6 +9,7 @@ import type {
   GetSwapQuoteResponse,
   GetSwapTokenCatalogRequest,
   GetSwapTokenCatalogResponse,
+  NetworkFee,
   StoredAccount,
 } from '@latch/types'
 
@@ -17,6 +18,7 @@ import { ConfirmSwapScreen } from '../screens/ConfirmSwapScreen'
 import { SwapFailureScreen } from '../screens/swap/SwapFailureScreen'
 import { SwapSuccessScreen } from '../screens/swap/SwapSuccessScreen'
 import { friendlyError, logLatchError, sendToBackground } from '../lib/backgroundClient'
+import { formatNetworkFeeLine } from '../lib/networkFee'
 import {
   clearPendingWalletOutcome,
   consumePendingWalletOutcomeIf,
@@ -340,6 +342,7 @@ export function SwapRouteViews({
           prepared: {
             estimatedFeeXlm?: string
             feeLabel?: string
+            networkFee?: NetworkFee
           }
           submit: { transactionHash?: string; hash?: string }
         }
@@ -355,14 +358,15 @@ export function SwapRouteViews({
       if (!res.ok) throw new Error(friendlyError(res.error) || 'Swap failed.')
 
       const prepared = res.data!.prepared
-      if (prepared.estimatedFeeXlm || prepared.feeLabel) {
+      const maxFeeLine = formatNetworkFeeLine(prepared.networkFee)
+      if (maxFeeLine || prepared.estimatedFeeXlm || prepared.feeLabel) {
         setSwapQuote((prev) =>
           prev
             ? {
                 ...prev,
-                networkFeeLine: prepared.feeLabel
-                  ? prepared.feeLabel
-                  : `~ ${prepared.estimatedFeeXlm} Stellar`,
+                networkFeeLine:
+                  maxFeeLine ??
+                  (prepared.feeLabel ? prepared.feeLabel : `~ ${prepared.estimatedFeeXlm} Stellar`),
               }
             : prev
         )

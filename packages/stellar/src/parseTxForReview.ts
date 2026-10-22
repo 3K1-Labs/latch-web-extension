@@ -61,75 +61,117 @@ function tryI128FromScVal(val: xdr.ScVal): bigint | null {
   }
 }
 
+const CONTRACT_INTERACTION: PreparedSignOperation = {
+  type: 'contract_interaction',
+  summary: 'Contract interaction',
+}
+
+/**
+ * FeeForwarder.forward(fee_token, fee_amount, max_fee_amount, expiration_ledger,
+ * target_contract, target_fn, target_args, user, relayer). fee_amount is a
+ * relayer-filled placeholder; the user authorizes max_fee_amount.
+ */
+const FORWARD_FN = 'forward'
+const FORWARD_ARG_COUNT = 9
+
+type ParsedInvoke = { operations: PreparedSignOperation[]; contractIds: string[] }
+
+function tryForwardInvoke(
+  args: xdr.ScVal[],
+  assetByContract: Map<string, { code: string }>
+): ParsedInvoke | null {
+  if (args.length !== FORWARD_ARG_COUNT) return null
+  const feeToken = tryAddressFromScVal(args[0]!)
+  const maxFeeRaw = tryI128FromScVal(args[2]!)
+  const target = tryAddressFromScVal(args[4]!)
+  if (!feeToken || maxFeeRaw === null || !target?.startsWith('C')) return null
+  if (args[5]!.switch() !== xdr.ScValType.scvSymbol()) return null
+  const targetFn = args[5]!.sym().toString()
+  if (args[6]!.switch() !== xdr.ScValType.scvVec()) return null
+  const targetArgs = args[6]!.vec() ?? []
+
+  const inner = classifyInvoke(target, targetFn, targetArgs, assetByContract)
+  const symbol = assetByContract.get(feeToken)?.code
+  const maxFee = formatSacRawToHuman(maxFeeRaw, STELLAR_SAC_DISPLAY_DECIMALS)
+  const fee: PreparedSignOperation = {
+    type: 'network_fee',
+    summary: `Network fee up to ${symbol ? `${maxFee} ${symbol}` : maxFee}`,
+    details: {
+      feeToken,
+      maxFeeAmount: maxFeeRaw.toString(),
+      ...(symbol ? { symbol } : {}),
+    },
+  }
+  return { operations: [inner, fee], contractIds: [target] }
+}
+
 function parseInvokeOp(
   op: Transaction['operations'][number],
   assetByContract: Map<string, { code: string }>
-): { operation: PreparedSignOperation; contractId: string | null } {
-  if (op.type !== 'invokeHostFunction' || !('func' in op) || !op.func) {
-    return {
-      operation: { type: 'contract_interaction', summary: 'Contract interaction' },
-      contractId: null,
-    }
-  }
+): ParsedInvoke {
+  const opaque: ParsedInvoke = { operations: [CONTRACT_INTERACTION], contractIds: [] }
+  if (op.type !== 'invokeHostFunction' || !('func' in op) || !op.func) return opaque
 
   const func = op.func as xdr.HostFunction
-  if (func.switch() !== xdr.HostFunctionType.hostFunctionTypeInvokeContract()) {
-    return {
-      operation: { type: 'contract_interaction', summary: 'Contract interaction' },
-      contractId: null,
-    }
-  }
+  if (func.switch() !== xdr.HostFunctionType.hostFunctionTypeInvokeContract()) return opaque
 
   const ic = func.invokeContract()
   let contractId: string
   try {
     contractId = Address.fromScAddress(ic.contractAddress()).toString()
   } catch {
-    return {
-      operation: { type: 'contract_interaction', summary: 'Contract interaction' },
-      contractId: null,
-    }
+    return opaque
   }
 
   const fnName = ic.functionName().toString()
   const args = ic.args()
+  if (fnName === FORWARD_FN) {
+    const forwarded = tryForwardInvoke(args, assetByContract)
+    if (forwarded) return forwarded
+  }
+  return {
+    operations: [classifyInvoke(contractId, fnName, args, assetByContract)],
+    contractIds: [contractId],
+  }
+}
+
+function classifyInvoke(
+  contractId: string,
+  fnName: string,
+  args: xdr.ScVal[],
+  assetByContract: Map<string, { code: string }>
+): PreparedSignOperation {
   const truncatedContract = truncateMiddle(contractId)
 
   if (fnName === 'transfer' && args.length >= 3) {
-    const to = tryAddressFromScVal(args[1])
-    const amountRaw = tryI128FromScVal(args[2])
+    const to = tryAddressFromScVal(args[1]!)
+    const amountRaw = tryI128FromScVal(args[2]!)
     if (to && amountRaw !== null) {
       const symbol = assetByContract.get(contractId)?.code
       const amount = formatSacRawToHuman(amountRaw, STELLAR_SAC_DISPLAY_DECIMALS)
       const amountPart = symbol ? `${amount} ${symbol}` : amount
       const summary = `Transfer ${amountPart} to ${truncateMiddle(to)}`
       return {
-        operation: {
-          type: 'sac_transfer',
-          summary,
-          details: {
-            contract: contractId,
-            function: fnName,
-            to,
-            amount: amountRaw.toString(),
-            ...(symbol ? { symbol } : {}),
-          },
+        type: 'sac_transfer',
+        summary,
+        details: {
+          contract: contractId,
+          function: fnName,
+          to,
+          amount: amountRaw.toString(),
+          ...(symbol ? { symbol } : {}),
         },
-        contractId,
       }
     }
   }
 
   return {
-    operation: {
-      type: 'invoke_contract',
-      summary: `Call ${truncatedContract}::${fnName}`,
-      details: {
-        contract: contractId,
-        function: fnName,
-      },
+    type: 'invoke_contract',
+    summary: `Call ${truncatedContract}::${fnName}`,
+    details: {
+      contract: contractId,
+      function: fnName,
     },
-    contractId,
   }
 }
 
@@ -155,17 +197,16 @@ export function parseTxForReview(txXdr: string, networkPassphrase: string): Pars
   const seen = new Set<string>()
 
   for (const op of tx.operations) {
-    const { operation, contractId } = parseInvokeOp(op, assetByContract)
-    operations.push(operation)
-    if (contractId && !seen.has(contractId)) {
+    const parsed = parseInvokeOp(op, assetByContract)
+    operations.push(...parsed.operations)
+    for (const contractId of parsed.contractIds) {
+      if (seen.has(contractId)) continue
       seen.add(contractId)
       invokeContractIds.push(contractId)
     }
   }
 
-  if (operations.length === 0) {
-    operations.push({ type: 'contract_interaction', summary: 'Contract interaction' })
-  }
+  if (operations.length === 0) operations.push(CONTRACT_INTERACTION)
 
   return { operations, invokeContractIds }
 }

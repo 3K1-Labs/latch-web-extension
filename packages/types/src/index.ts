@@ -209,6 +209,17 @@ export interface BuildSendAssetInfo {
   decimals: number
 }
 
+/** Most the user agrees to pay for one user-paid (FeeForwarder) transaction. */
+export interface NetworkFee {
+  /** Fee token contract. */
+  token: string
+  symbol: string
+  /** 7-decimal integer units. */
+  maxAmountRaw: string
+  /** Human-readable amount. */
+  maxAmount: string
+}
+
 export interface BuildSendTxResponse {
   txXdr: string
   authEntryXdr: string
@@ -231,6 +242,7 @@ export interface BuildSendTxResponse {
   estimatedFeeXlm?: string
   estimatedFeeUsd?: string
   feeLabel?: string
+  networkFee?: NetworkFee
   delegatedGAuthEntrySynthesized?: boolean
   delegatedNativeAuthEntryIndices?: number[]
   delegatedNativeSignBlobPayloadsBase64?: string[]

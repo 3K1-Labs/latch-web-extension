@@ -1,11 +1,13 @@
 import {
   Account,
+  Address,
   Asset,
   Contract,
   Keypair,
   Networks,
   TransactionBuilder,
   nativeToScVal,
+  xdr,
 } from '@stellar/stellar-sdk'
 import { describe, expect, it } from 'vitest'
 
@@ -81,6 +83,42 @@ describe('parseTxForReview', () => {
     expect(parsed.operations[0]?.details).toMatchObject({
       contract: contractId,
       function: 'swap',
+    })
+  })
+
+  it('presents the inner transfer and max fee of a FeeForwarder forward() call', () => {
+    const nativeId = Asset.native().contractId(PASSPHRASE)
+    const feeForwarder = 'CCQXTY4EG56OP7APGGJSY5YITFNSXWB4EKPZ7KKMYEHW7BXIKW44HSTA'
+    const { account, keypair } = makeAccount()
+    const forwardArgs = [
+      new Address(nativeId).toScVal(),
+      nativeToScVal(1n, { type: 'i128' }),
+      nativeToScVal(140_000n, { type: 'i128' }),
+      nativeToScVal(1120, { type: 'u32' }),
+      new Address(nativeId).toScVal(),
+      xdr.ScVal.scvSymbol('transfer'),
+      xdr.ScVal.scvVec([
+        new Address(TO_C).toScVal(),
+        new Address(TO_C).toScVal(),
+        nativeToScVal(25_000_000n, { type: 'i128' }),
+      ]),
+      new Address(TO_C).toScVal(),
+      new Address(keypair.publicKey()).toScVal(),
+    ]
+    const tx = new TransactionBuilder(account, { fee: '100', networkPassphrase: PASSPHRASE })
+      .addOperation(new Contract(feeForwarder).call('forward', ...forwardArgs))
+      .setTimeout(30)
+      .build()
+
+    const parsed = parseTxForReview(tx.toXDR(), PASSPHRASE)
+    expect(parsed.invokeContractIds).toEqual([nativeId])
+    expect(parsed.operations).toHaveLength(2)
+    expect(parsed.operations[0]?.type).toBe('sac_transfer')
+    expect(parsed.operations[0]?.summary).toContain('2.5 XLM')
+    expect(parsed.operations[1]).toMatchObject({
+      type: 'network_fee',
+      summary: 'Network fee up to 0.014 XLM',
+      details: { feeToken: nativeId, maxFeeAmount: '140000', symbol: 'XLM' },
     })
   })
 

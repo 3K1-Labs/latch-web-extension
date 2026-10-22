@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 
 import type { BuildSendTxResponse } from '@latch/types'
 
+import { formatNetworkFeeLine } from '../../lib/networkFee'
 import { fiatToCrypto } from '../../lib/sendAmount'
 import type { SendDraft } from '../../types/send'
 import { SendSummaryFacts } from './SendSummaryFacts'
@@ -46,6 +47,11 @@ export function SendSummaryScreen({
     let cancelled = false
     void onFetchFeeEstimate().then((res) => {
       if (cancelled || !res) return
+      const maxFee = formatNetworkFeeLine(res.networkFee)
+      if (maxFee) {
+        setFeeDisplay(maxFee)
+        return
+      }
       const label = res.feeLabel ?? 'Fast'
       const xlm = res.estimatedFeeXlm ?? '—'
       const usd = res.estimatedFeeUsd ? ` ($${res.estimatedFeeUsd})` : ''
