@@ -11,6 +11,7 @@ import {
 } from '@stellar/stellar-sdk'
 import { describe, expect, it } from 'vitest'
 
+import { FEE_FORWARDER_CONTRACT_ID } from './curatedAssets'
 import { buildUnsignedSacTransferTx } from './sacTransfer'
 import { assessExternalSignReview, parseTxForReview } from './parseTxForReview'
 
@@ -54,6 +55,44 @@ function genericInvokeXdr(params: { contractId: string; fn: string }): string {
 }
 
 const TO_C = 'CDBBGLSWWHWK52REY7GK5HWAQGAJJ4GP5O75LOM3F4INN6W4KT6DPBVY'
+const FEE_FORWARDER = FEE_FORWARDER_CONTRACT_ID.testnet!
+/** Not curated on testnet, so it has no symbol and is not an allowed fee token. */
+const OTHER_C = new Asset('EVIL', USDC_ISSUER).contractId(PASSPHRASE)
+const OTHER_C_SHORT = `${OTHER_C.slice(0, 6)}...${OTHER_C.slice(-4)}`
+
+function forwardXdr(params: {
+  forwarder: string
+  feeToken: string
+  target: string
+  targetFn?: string
+  targetArgs?: xdr.ScVal[]
+  user: string
+  maxFeeRaw?: bigint
+}): string {
+  const { account, keypair } = makeAccount()
+  const args = [
+    new Address(params.feeToken).toScVal(),
+    nativeToScVal(1n, { type: 'i128' }),
+    nativeToScVal(params.maxFeeRaw ?? 140_000n, { type: 'i128' }),
+    nativeToScVal(1120, { type: 'u32' }),
+    new Address(params.target).toScVal(),
+    xdr.ScVal.scvSymbol(params.targetFn ?? 'transfer'),
+    xdr.ScVal.scvVec(
+      params.targetArgs ?? [
+        new Address(params.user).toScVal(),
+        new Address(TO_C).toScVal(),
+        nativeToScVal(25_000_000n, { type: 'i128' }),
+      ]
+    ),
+    new Address(params.user).toScVal(),
+    new Address(keypair.publicKey()).toScVal(),
+  ]
+  return new TransactionBuilder(account, { fee: '100', networkPassphrase: PASSPHRASE })
+    .addOperation(new Contract(params.forwarder).call('forward', ...args))
+    .setTimeout(30)
+    .build()
+    .toXDR()
+}
 
 describe('parseTxForReview', () => {
   it('summarizes SAC transfer with amount and truncated to', () => {
@@ -88,38 +127,105 @@ describe('parseTxForReview', () => {
 
   it('presents the inner transfer and max fee of a FeeForwarder forward() call', () => {
     const nativeId = Asset.native().contractId(PASSPHRASE)
-    const feeForwarder = 'CCQXTY4EG56OP7APGGJSY5YITFNSXWB4EKPZ7KKMYEHW7BXIKW44HSTA'
-    const { account, keypair } = makeAccount()
-    const forwardArgs = [
-      new Address(nativeId).toScVal(),
-      nativeToScVal(1n, { type: 'i128' }),
-      nativeToScVal(140_000n, { type: 'i128' }),
-      nativeToScVal(1120, { type: 'u32' }),
-      new Address(nativeId).toScVal(),
-      xdr.ScVal.scvSymbol('transfer'),
-      xdr.ScVal.scvVec([
-        new Address(TO_C).toScVal(),
-        new Address(TO_C).toScVal(),
-        nativeToScVal(25_000_000n, { type: 'i128' }),
-      ]),
-      new Address(TO_C).toScVal(),
-      new Address(keypair.publicKey()).toScVal(),
-    ]
-    const tx = new TransactionBuilder(account, { fee: '100', networkPassphrase: PASSPHRASE })
-      .addOperation(new Contract(feeForwarder).call('forward', ...forwardArgs))
-      .setTimeout(30)
-      .build()
+    const xdrStr = forwardXdr({
+      forwarder: FEE_FORWARDER,
+      feeToken: nativeId,
+      target: nativeId,
+      user: TO_C,
+    })
 
-    const parsed = parseTxForReview(tx.toXDR(), PASSPHRASE)
-    expect(parsed.invokeContractIds).toEqual([nativeId])
+    const parsed = parseTxForReview(xdrStr, PASSPHRASE, { feeForwarderId: FEE_FORWARDER })
+    expect(parsed.invokeContractIds).toEqual([FEE_FORWARDER, nativeId])
+    expect(parsed.forwardUsers).toEqual([TO_C])
+    expect(parsed.warnings).toEqual([])
     expect(parsed.operations).toHaveLength(2)
     expect(parsed.operations[0]?.type).toBe('sac_transfer')
     expect(parsed.operations[0]?.summary).toContain('2.5 XLM')
     expect(parsed.operations[1]).toMatchObject({
       type: 'network_fee',
       summary: 'Network fee up to 0.014 XLM',
-      details: { feeToken: nativeId, maxFeeAmount: '140000', symbol: 'XLM' },
+      details: { feeToken: nativeId, maxFeeAmount: '140000', symbol: 'XLM', user: TO_C },
     })
+  })
+
+  it('keeps forward() on a contract other than the FeeForwarder opaque', () => {
+    const usdcId = new Asset('USDC', USDC_ISSUER).contractId(PASSPHRASE)
+    const xdrStr = forwardXdr({
+      forwarder: OTHER_C,
+      feeToken: usdcId,
+      target: usdcId,
+      user: TO_C,
+      maxFeeRaw: 1n,
+    })
+
+    const parsed = parseTxForReview(xdrStr, PASSPHRASE, { feeForwarderId: FEE_FORWARDER })
+    expect(parsed.invokeContractIds).toEqual([OTHER_C])
+    expect(parsed.forwardUsers).toEqual([])
+    expect(parsed.operations).toHaveLength(1)
+    expect(parsed.operations[0]).toMatchObject({
+      type: 'invoke_contract',
+      summary: `Call ${OTHER_C_SHORT}::forward`,
+    })
+  })
+
+  it('defaults to the known testnet FeeForwarder when opts omit an id', () => {
+    const nativeId = Asset.native().contractId(PASSPHRASE)
+    const xdrStr = forwardXdr({
+      forwarder: FEE_FORWARDER,
+      feeToken: nativeId,
+      target: nativeId,
+      user: TO_C,
+    })
+
+    const parsed = parseTxForReview(xdrStr, PASSPHRASE)
+    expect(parsed.invokeContractIds).toEqual([FEE_FORWARDER, nativeId])
+    expect(parsed.operations[1]?.type).toBe('network_fee')
+  })
+
+  it('never unwraps forward() when FeeForwarder is explicitly unset', () => {
+    const nativeId = Asset.native().contractId(PASSPHRASE)
+    const xdrStr = forwardXdr({
+      forwarder: FEE_FORWARDER,
+      feeToken: nativeId,
+      target: nativeId,
+      user: TO_C,
+    })
+
+    const parsed = parseTxForReview(xdrStr, PASSPHRASE, { feeForwarderId: undefined })
+    expect(parsed.invokeContractIds).toEqual([FEE_FORWARDER])
+    expect(parsed.operations[0]?.type).toBe('invoke_contract')
+  })
+
+  it('names an uncurated fee token and warns about it', () => {
+    const nativeId = Asset.native().contractId(PASSPHRASE)
+    const xdrStr = forwardXdr({
+      forwarder: FEE_FORWARDER,
+      feeToken: OTHER_C,
+      target: nativeId,
+      user: TO_C,
+    })
+
+    const parsed = parseTxForReview(xdrStr, PASSPHRASE, { feeForwarderId: FEE_FORWARDER })
+    const fee = parsed.operations.find((op) => op.type === 'network_fee')
+    expect(fee?.summary).toBe(`Network fee up to 0.014 of ${OTHER_C_SHORT}`)
+    expect(fee?.details?.symbol).toBeUndefined()
+    expect(fee?.details?.feeTokenWarning).toBe('unexpected_fee_token')
+    expect(parsed.warnings).toHaveLength(1)
+    expect(parsed.warnings[0]).toContain('not XLM or USDC')
+  })
+
+  it('does not warn when the fee is paid in USDC', () => {
+    const usdcId = new Asset('USDC', USDC_ISSUER).contractId(PASSPHRASE)
+    const xdrStr = forwardXdr({
+      forwarder: FEE_FORWARDER,
+      feeToken: usdcId,
+      target: usdcId,
+      user: TO_C,
+    })
+
+    const parsed = parseTxForReview(xdrStr, PASSPHRASE, { feeForwarderId: FEE_FORWARDER })
+    expect(parsed.warnings).toEqual([])
+    expect(parsed.operations[1]?.summary).toBe('Network fee up to 0.014 USDC')
   })
 
   it('throws on invalid XDR', () => {
@@ -228,5 +334,103 @@ describe('assessExternalSignReview', () => {
     })
     expect(review.confirmBlocked).toBe(true)
     expect(review.code).toBe('account_mismatch')
+  })
+
+  const assess = (unsignedTxXdr: string, preparedTxXdr: string) =>
+    assessExternalSignReview({
+      unsignedTxXdr,
+      preparedTxXdr,
+      networkPassphrase: PASSPHRASE,
+      signRequestNetwork: 'testnet',
+      preparedNetwork: 'testnet',
+      activeNetwork: 'testnet',
+      signRequestSmartAccount: smart,
+      preparedSmartAccount: smart,
+      activeSmartAccount: smart,
+      feeForwarderId: FEE_FORWARDER,
+    })
+
+  it('allows a plain dApp call that prepare-sign wrapped in the FeeForwarder, and shows its fee', () => {
+    const unsigned = sacTransferXdr({ sacContractId: nativeId, toCAddress: TO_C, amountRaw: 1n })
+    const prepared = forwardXdr({
+      forwarder: FEE_FORWARDER,
+      feeToken: nativeId,
+      target: nativeId,
+      user: smart,
+    })
+    const review = assess(unsigned, prepared)
+    expect(review.confirmBlocked).toBe(false)
+    expect(review.operations.map((op) => op.type)).toEqual(['sac_transfer', 'network_fee'])
+    expect(review.operations[1]?.summary).toBe('Network fee up to 0.014 XLM')
+  })
+
+  it('blocks when forward() charges a different user than the active wallet', () => {
+    const forwarded = forwardXdr({
+      forwarder: FEE_FORWARDER,
+      feeToken: nativeId,
+      target: nativeId,
+      user: OTHER_C,
+    })
+    const review = assess(forwarded, forwarded)
+    expect(review.confirmBlocked).toBe(true)
+    expect(review.code).toBe('user_mismatch')
+  })
+
+  it('blocks when only the prepared forward() charges a different user', () => {
+    const unsigned = sacTransferXdr({ sacContractId: nativeId, toCAddress: TO_C, amountRaw: 1n })
+    const prepared = forwardXdr({
+      forwarder: FEE_FORWARDER,
+      feeToken: nativeId,
+      target: nativeId,
+      user: OTHER_C,
+    })
+    const review = assess(unsigned, prepared)
+    expect(review.confirmBlocked).toBe(true)
+    expect(review.code).toBe('user_mismatch')
+  })
+
+  it('blocks when the prepared forward() wraps a different target', () => {
+    const unsigned = forwardXdr({
+      forwarder: FEE_FORWARDER,
+      feeToken: nativeId,
+      target: nativeId,
+      user: smart,
+    })
+    const prepared = forwardXdr({
+      forwarder: FEE_FORWARDER,
+      feeToken: nativeId,
+      target: usdcId,
+      user: smart,
+    })
+    const review = assess(unsigned, prepared)
+    expect(review.confirmBlocked).toBe(true)
+    expect(review.code).toBe('contract_mismatch')
+  })
+
+  it('blocks a lookalike forward() whose prepared tx targets only the inner token', () => {
+    const unsigned = forwardXdr({
+      forwarder: OTHER_C,
+      feeToken: usdcId,
+      target: usdcId,
+      user: smart,
+      maxFeeRaw: 1n,
+    })
+    const prepared = sacTransferXdr({ sacContractId: usdcId, toCAddress: TO_C, amountRaw: 1n })
+    const review = assess(unsigned, prepared)
+    expect(review.confirmBlocked).toBe(true)
+    expect(review.code).toBe('contract_mismatch')
+    expect(review.operations[0]?.summary).toBe(`Call ${OTHER_C_SHORT}::forward`)
+  })
+
+  it('surfaces the uncurated fee-token warning on an otherwise valid review', () => {
+    const forwarded = forwardXdr({
+      forwarder: FEE_FORWARDER,
+      feeToken: OTHER_C,
+      target: nativeId,
+      user: smart,
+    })
+    const review = assess(forwarded, forwarded)
+    expect(review.confirmBlocked).toBe(false)
+    expect(review.warnings?.[0]).toContain('not XLM or USDC')
   })
 })

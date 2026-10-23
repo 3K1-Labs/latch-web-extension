@@ -1050,6 +1050,8 @@ export type BackgroundRequestPayloadByType = {
   EXECUTE_SWAP_CONFIRM: {
     accountId: string
     quote: import('./swap').SwapQuotePayload
+    /** Fee shown on confirm. Signing is refused when the fresh build is not covered by it. */
+    shownNetworkFee?: NetworkFee | null
     surface: 'popup' | 'sidepanel'
     outcomePayload?: Record<string, unknown>
   }
@@ -1065,6 +1067,8 @@ export type BackgroundRequestPayloadByType = {
     }
     sendTokenPriceUsd: number | null
     network: Network
+    /** Fee shown on the summary. Signing is refused when the fresh build is not covered by it. */
+    shownNetworkFee?: NetworkFee | null
     surface: 'popup' | 'sidepanel'
     outcomePayload?: Record<string, unknown>
   }

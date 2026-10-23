@@ -12,7 +12,11 @@ import type {
 import { assessExternalSignReview } from '@latch/stellar'
 
 import { BackendError, fetchSignPayload, prepareSign } from '../backend'
-import { getActiveNetwork, networkPassphraseFor } from '../network/config'
+import {
+  feeForwarderContractIdFor,
+  getActiveNetwork,
+  networkPassphraseFor,
+} from '../network/config'
 import { getAccounts } from '../storage'
 import {
   contextSetupErrShape,
@@ -233,6 +237,7 @@ export async function prepareExternalSignSession(args: {
     signRequestSmartAccount: signRequest.smartAccountAddress,
     preparedSmartAccount: prepared.smartAccountAddress,
     activeSmartAccount: active.smartAccountAddress,
+    feeForwarderId: feeForwarderContractIdFor(signRequest.network),
   })
 
   return { origin, signRequest, prepared, localReview }

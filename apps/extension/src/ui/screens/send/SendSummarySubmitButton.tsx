@@ -2,17 +2,19 @@ import React from 'react'
 
 export function SendSummarySubmitButton({
   loading,
+  disabled = false,
   onSend,
   label = 'Send',
 }: {
   loading: boolean
+  disabled?: boolean
   onSend: () => void
   label?: string
 }) {
   return (
     <button
       type="button"
-      disabled={loading}
+      disabled={loading || disabled}
       onClick={onSend}
       className="relative flex h-12 w-full shrink-0 items-center justify-center overflow-hidden rounded-[32px] border border-[#f0a300] px-5 py-3 text-base font-semibold leading-[1.31] tracking-[-0.16px] text-[#121212] shadow-[0px_12px_13.1px_-8px_rgba(246,139,7,0.1)] disabled:cursor-not-allowed disabled:opacity-50"
     >

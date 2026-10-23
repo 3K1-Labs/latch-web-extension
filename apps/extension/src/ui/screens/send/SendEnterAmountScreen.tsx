@@ -1,4 +1,6 @@
-import React, { useMemo } from 'react'
+import React, { useMemo, useState } from 'react'
+
+import type { SmartAccountBalanceRow } from '@latch/types'
 
 import {
   cryptoToFiat,
@@ -18,6 +20,7 @@ export function SendEnterAmountScreen({
   draft,
   priceUsd,
   onDraftChange,
+  onResolveMaxAmount,
   onBack,
   onEditRecipient,
   onNext,
@@ -26,6 +29,8 @@ export function SendEnterAmountScreen({
   draft: SendDraft
   priceUsd: number | null
   onDraftChange: (patch: Partial<SendDraft>) => void
+  /** Balance less the max network fee when this token pays it. Null leaves the amount unchanged. */
+  onResolveMaxAmount: (token: SmartAccountBalanceRow) => Promise<string | null>
   onBack: () => void
   onEditRecipient: () => void
   onNext: () => void
@@ -55,8 +60,17 @@ export function SendEnterAmountScreen({
     onDraftChange({ amount: String(usd), inputMode: 'fiat' as SendInputMode })
   }
 
-  const handleMax = () => {
-    onDraftChange({ amount: token.amount, inputMode: 'crypto' })
+  const [maxPending, setMaxPending] = useState(false)
+
+  const handleMax = async () => {
+    if (maxPending) return
+    setMaxPending(true)
+    try {
+      const amount = await onResolveMaxAmount(token)
+      if (amount != null) onDraftChange({ amount, inputMode: 'crypto' })
+    } finally {
+      setMaxPending(false)
+    }
   }
 
   const toggleMode = () => {
@@ -107,7 +121,12 @@ export function SendEnterAmountScreen({
           />
         </div>
 
-        <SendAvailableBalanceRow balance={token.amount} symbol={token.code} onMax={handleMax} />
+        <SendAvailableBalanceRow
+          balance={token.amount}
+          symbol={token.code}
+          disabled={maxPending}
+          onMax={() => void handleMax()}
+        />
       </div>
     </div>
   )

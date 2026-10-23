@@ -1,6 +1,8 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import type {
+  BackgroundRequestPayloadByType,
+  BackgroundResponseDataByType,
   GetAssetIconDataUrlsRequest,
   GetAssetIconDataUrlsResponse,
   GetMarketPricesRequest,
@@ -10,6 +12,8 @@ import type {
   GetSwapTokenCatalogRequest,
   GetSwapTokenCatalogResponse,
   NetworkFee,
+  PrepareSwapTxRequest,
+  PrepareSwapTxResponse,
   StoredAccount,
 } from '@latch/types'
 
@@ -18,7 +22,11 @@ import { ConfirmSwapScreen } from '../screens/ConfirmSwapScreen'
 import { SwapFailureScreen } from '../screens/swap/SwapFailureScreen'
 import { SwapSuccessScreen } from '../screens/swap/SwapSuccessScreen'
 import { friendlyError, logLatchError, sendToBackground } from '../lib/backgroundClient'
-import { formatNetworkFeeLine } from '../lib/networkFee'
+import {
+  NETWORK_FEE_CHANGED_CODE,
+  formatPreparedNetworkFeeLine,
+  isUserPaidFeeErrorCode,
+} from '../lib/networkFee'
 import {
   clearPendingWalletOutcome,
   consumePendingWalletOutcomeIf,
@@ -30,6 +38,13 @@ import {
   pickDefaultReceiveTokenId,
   swapQuotePayloadToVm,
 } from '../swap/swapVm'
+import {
+  shouldApplySwapQuoteRefresh,
+  swapConfirmBlocked,
+  swapQuoteMatchesDraft,
+  swapQuoteRefreshAction,
+  swapQuoteRefreshWaitMs,
+} from '../swap/swapQuoteRefresh'
 import type { Route, Surface } from '../routing/routes'
 
 export type SwapOverlayFlags = {
@@ -73,6 +88,22 @@ export function SwapRouteViews({
   const [swapBusy, setSwapBusy] = useState(false)
   const [swapStep, setSwapStep] = useState<'confirm' | 'success' | 'failure'>('confirm')
   const [swapFailureDetail, setSwapFailureDetail] = useState<string | null>(null)
+  const [swapFeeError, setSwapFeeError] = useState<string | null>(null)
+  const [swapReviewNotice, setSwapReviewNotice] = useState<string | null>(null)
+  const [swapFeeLoading, setSwapFeeLoading] = useState(false)
+  const [swapFeePrepareNonce, setSwapFeePrepareNonce] = useState(0)
+  /** Fee the confirm screen displayed; the background refuses to sign a build it doesn't cover. */
+  const [shownSwapNetworkFee, setShownSwapNetworkFee] = useState<NetworkFee | null>(null)
+  const [quoteRefreshTick, setQuoteRefreshTick] = useState(0)
+  /** Last time this confirm visit fetched each quote expiry. */
+  const quoteAttemptedAtRef = useRef<Map<number, number>>(new Map())
+  const confirmEntryExpiresRef = useRef<number | null>(null)
+  /** Bumped when a refresh starts or this confirm visit ends, so a late response is dropped. */
+  const quoteGenRef = useRef(0)
+  /** Set when Confirm must load a quote for the amount on screen before it can sign. */
+  const forceQuoteRefreshRef = useRef(false)
+  /** True from the moment Confirm starts signing until that attempt settles. */
+  const submitLockRef = useRef(false)
   const [swapTokenPriceUsdBySymbol, setSwapTokenPriceUsdBySymbol] = useState<
     Record<string, number>
   >({})
@@ -219,6 +250,16 @@ export function SwapRouteViews({
     setSwapBusy(false)
     setSwapStep('confirm')
     setSwapFailureDetail(null)
+    setSwapFeeError(null)
+    setSwapReviewNotice(null)
+    setSwapFeeLoading(false)
+    setShownSwapNetworkFee(null)
+    setSwapFeePrepareNonce(0)
+    quoteAttemptedAtRef.current.clear()
+    confirmEntryExpiresRef.current = null
+    forceQuoteRefreshRef.current = false
+    submitLockRef.current = false
+    quoteGenRef.current += 1
   }
 
   const openSwapFromNav = useCallback(() => {
@@ -262,7 +303,7 @@ export function SwapRouteViews({
     })
   }, [onOverlayFlags, swapCatalogLoading, swapPayTokenCatalogWithIcons.length, swapBusy, swapStep])
 
-  async function refreshSwapQuoteForConfirm(): Promise<SwapQuoteVm> {
+  const refreshSwapQuoteForConfirm = useCallback(async (): Promise<SwapQuoteVm> => {
     if (!activeAccount?.id || !swapDraft || !swapQuote) {
       throw new Error('Swap session expired')
     }
@@ -285,10 +326,145 @@ export function SwapRouteViews({
 
     const payUsd = swapTokenPriceUsdBySymbol[payToken.symbol.toUpperCase()]
     const receiveUsd = swapTokenPriceUsdBySymbol[receiveToken.symbol.toUpperCase()]
-    const refreshed = swapQuotePayloadToVm(res.data.quote, payUsd, receiveUsd)
-    setSwapQuote(refreshed)
-    return refreshed
-  }
+    return swapQuotePayloadToVm(res.data.quote, payUsd, receiveUsd)
+  }, [activeAccount?.id, resolveSwapToken, swapDraft, swapQuote, swapTokenPriceUsdBySymbol])
+
+  const quotePayloadForFee = swapQuote?.quotePayload
+  const quoteExpiresAt = quotePayloadForFee?.expiresAtMs
+  const onConfirmScreen = route === 'swapConfirm' && swapStep === 'confirm'
+  const refreshInput =
+    onConfirmScreen && quoteExpiresAt != null && quotePayloadForFee
+      ? {
+          now: Date.now(),
+          expiresAt: quoteExpiresAt,
+          providerId: quotePayloadForFee.providerId,
+          entryExpiresAt: confirmEntryExpiresRef.current,
+          attemptedAt: quoteAttemptedAtRef.current.get(quoteExpiresAt) ?? null,
+        }
+      : null
+  const quoteNeedsRefresh =
+    refreshInput != null &&
+    (forceQuoteRefreshRef.current || swapQuoteRefreshAction(refreshInput) === 'refresh')
+  const quoteRemainingMs =
+    quoteExpiresAt == null ? Number.POSITIVE_INFINITY : quoteExpiresAt - Date.now()
+  const refreshQuoteRef = useRef(refreshSwapQuoteForConfirm)
+  refreshQuoteRef.current = refreshSwapQuoteForConfirm
+
+  useEffect(() => {
+    if (!onConfirmScreen) {
+      confirmEntryExpiresRef.current = null
+      quoteAttemptedAtRef.current.clear()
+      forceQuoteRefreshRef.current = false
+      quoteGenRef.current += 1
+      return
+    }
+    if (swapBusy) return
+    if (!quoteNeedsRefresh || quoteExpiresAt == null || refreshInput == null) {
+      const wait = refreshInput ? swapQuoteRefreshWaitMs(refreshInput) : null
+      if (wait != null) {
+        const id = window.setTimeout(() => setQuoteRefreshTick((n) => n + 1), wait)
+        return () => window.clearTimeout(id)
+      }
+      return
+    }
+    const gen = ++quoteGenRef.current
+    if (confirmEntryExpiresRef.current == null) confirmEntryExpiresRef.current = quoteExpiresAt
+    setSwapFeeLoading(true)
+    setShownSwapNetworkFee(null)
+    void refreshQuoteRef
+      .current()
+      .then((vm) => {
+        if (
+          !shouldApplySwapQuoteRefresh({
+            requestGen: gen,
+            currentGen: quoteGenRef.current,
+            submitting: submitLockRef.current,
+          })
+        ) {
+          return
+        }
+        forceQuoteRefreshRef.current = false
+        quoteAttemptedAtRef.current.set(quoteExpiresAt, Date.now())
+        setSwapQuote(vm)
+      })
+      .catch((e) => {
+        if (
+          !shouldApplySwapQuoteRefresh({
+            requestGen: gen,
+            currentGen: quoteGenRef.current,
+            submitting: submitLockRef.current,
+          })
+        ) {
+          return
+        }
+        forceQuoteRefreshRef.current = false
+        quoteAttemptedAtRef.current.set(quoteExpiresAt, Date.now())
+        setSwapFeeLoading(false)
+        setSwapFeeError(e instanceof Error ? e.message : String(e))
+        logLatchError('swap:quote-refresh', e)
+      })
+    return () => {
+      quoteGenRef.current += 1
+    }
+  }, [onConfirmScreen, swapBusy, quoteNeedsRefresh, quoteExpiresAt, quoteRefreshTick])
+
+  useEffect(() => {
+    if (
+      route !== 'swapConfirm' ||
+      swapStep !== 'confirm' ||
+      !activeAccount?.id ||
+      !quotePayloadForFee ||
+      quoteNeedsRefresh
+    ) {
+      return
+    }
+    const preparedExpiresAt = quotePayloadForFee.expiresAtMs
+    let cancelled = false
+    setSwapFeeLoading(true)
+    setSwapFeeError(null)
+    setShownSwapNetworkFee(null)
+    void sendToBackground<PrepareSwapTxRequest, PrepareSwapTxResponse>({
+      type: 'PREPARE_SWAP_TX',
+      payload: { accountId: activeAccount.id, quote: quotePayloadForFee },
+    })
+      .then((res) => {
+        if (cancelled) return
+        setSwapFeeLoading(false)
+        if (res.ok && res.data) {
+          setShownSwapNetworkFee(res.data.networkFee ?? null)
+          setSwapReviewNotice(null)
+          const line = formatPreparedNetworkFeeLine(res.data)
+          if (line) {
+            setSwapQuote((prev) =>
+              prev && prev.quotePayload.expiresAtMs === preparedExpiresAt
+                ? { ...prev, networkFeeLine: line }
+                : prev
+            )
+          }
+          return
+        }
+        setShownSwapNetworkFee(null)
+        if (isUserPaidFeeErrorCode(res.error?.code)) {
+          setSwapFeeError(friendlyError(res.error))
+        }
+      })
+      .catch((e) => {
+        if (cancelled) return
+        setSwapFeeLoading(false)
+        setShownSwapNetworkFee(null)
+        logLatchError('swap:prepare-fee', e)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [
+    route,
+    swapStep,
+    activeAccount?.id,
+    quotePayloadForFee,
+    quoteNeedsRefresh,
+    swapFeePrepareNonce,
+  ])
 
   useEffect(() => {
     void (async () => {
@@ -310,19 +486,40 @@ export function SwapRouteViews({
     })()
   }, [onLoadPortfolio, onSetRoute])
 
+  function refuseStaleQuote(message: string) {
+    setSwapReviewNotice(message)
+    setShownSwapNetworkFee(null)
+    forceQuoteRefreshRef.current = true
+    setQuoteRefreshTick((n) => n + 1)
+  }
+
   async function handleConfirmSwap() {
     if (!activeAccount?.id || !swapQuote || !swapDraft) return
+    if (swapFeeLoading || quoteNeedsRefresh || quoteRemainingMs <= 0) {
+      if (quoteRemainingMs <= 0) {
+        refuseStaleQuote('This quote expired. Review the updated price and fee.')
+      }
+      return
+    }
+    if (
+      !swapQuoteMatchesDraft(
+        swapDraft.payAmount,
+        swapQuote.quotePayload.assetIn.decimals,
+        swapQuote.quotePayload.amountInRaw
+      )
+    ) {
+      refuseStaleQuote(
+        "The quote doesn't match the amount on screen. Review the updated price and fee."
+      )
+      return
+    }
 
+    quoteGenRef.current += 1
+    submitLockRef.current = true
     setSwapBusy(true)
     setSwapFailureDetail(null)
     try {
-      const quoteForTx =
-        swapQuote.quotePayload.providerId === 'soroswap' ||
-        Date.now() >= swapQuote.quotePayload.expiresAtMs - 5_000
-          ? await refreshSwapQuoteForConfirm()
-          : swapQuote
-
-      const outcomePayload = { draft: swapDraft, quote: quoteForTx }
+      const outcomePayload = { draft: swapDraft, quote: swapQuote }
       if (surface === 'popup') {
         await writePendingWalletOutcome({
           kind: 'swap',
@@ -332,45 +529,26 @@ export function SwapRouteViews({
       }
 
       const res = await sendToBackground<
-        {
-          accountId: string
-          quote: typeof quoteForTx.quotePayload
-          surface: Surface
-          outcomePayload?: Record<string, unknown>
-        },
-        {
-          prepared: {
-            estimatedFeeXlm?: string
-            feeLabel?: string
-            networkFee?: NetworkFee
-          }
-          submit: { transactionHash?: string; hash?: string }
-        }
+        BackgroundRequestPayloadByType['EXECUTE_SWAP_CONFIRM'],
+        BackgroundResponseDataByType['EXECUTE_SWAP_CONFIRM']
       >({
         type: 'EXECUTE_SWAP_CONFIRM',
         payload: {
           accountId: activeAccount.id,
-          quote: quoteForTx.quotePayload,
+          quote: swapQuote.quotePayload,
+          shownNetworkFee: shownSwapNetworkFee,
           surface,
           outcomePayload,
         },
       })
-      if (!res.ok) throw new Error(friendlyError(res.error) || 'Swap failed.')
-
-      const prepared = res.data!.prepared
-      const maxFeeLine = formatNetworkFeeLine(prepared.networkFee)
-      if (maxFeeLine || prepared.estimatedFeeXlm || prepared.feeLabel) {
-        setSwapQuote((prev) =>
-          prev
-            ? {
-                ...prev,
-                networkFeeLine:
-                  maxFeeLine ??
-                  (prepared.feeLabel ? prepared.feeLabel : `~ ${prepared.estimatedFeeXlm} Stellar`),
-              }
-            : prev
-        )
+      if (!res.ok && res.error?.code === NETWORK_FEE_CHANGED_CODE) {
+        await clearPendingWalletOutcome()
+        setSwapReviewNotice(friendlyError(res.error))
+        setShownSwapNetworkFee(null)
+        setSwapFeePrepareNonce((n) => n + 1)
+        return
       }
+      if (!res.ok) throw new Error(friendlyError(res.error) || 'Swap failed.')
 
       setSwapStep('success')
       await clearPendingWalletOutcome()
@@ -398,6 +576,7 @@ export function SwapRouteViews({
         })
       }
     } finally {
+      submitLockRef.current = false
       setSwapBusy(false)
     }
   }
@@ -479,6 +658,13 @@ export function SwapRouteViews({
             resolveSwapToken={resolveSwapToken}
             receiveAddress={activeAccount?.smartAccountAddress}
             busy={swapBusy}
+            confirmDisabled={swapConfirmBlocked({
+              remainingMs: quoteRemainingMs,
+              refreshing: quoteNeedsRefresh,
+              feeLoading: swapFeeLoading,
+              feeError: swapFeeError != null,
+            })}
+            feeError={swapFeeError ?? swapReviewNotice}
             onBackOrCancel={() => {
               if (swapBusy) return
               onSetRoute('swap')

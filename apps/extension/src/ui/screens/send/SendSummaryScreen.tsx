@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react'
 
-import type { BuildSendTxResponse } from '@latch/types'
+import type { NetworkFee } from '@latch/types'
 
-import { formatNetworkFeeLine } from '../../lib/networkFee'
+import { friendlyError } from '../../lib/backgroundClient'
+import { formatNetworkFeeLine, isUserPaidFeeErrorCode } from '../../lib/networkFee'
 import { fiatToCrypto } from '../../lib/sendAmount'
-import type { SendDraft } from '../../types/send'
+import type { SendDraft, SendFeeEstimate } from '../../types/send'
 import { SendSummaryFacts } from './SendSummaryFacts'
 import { SendSummaryHeader } from './SendSummaryHeader'
 import { SendSummaryHero } from './SendSummaryHero'
@@ -20,7 +21,9 @@ export function SendSummaryScreen({
   submitLabel,
   onBack,
   onSend,
+  feeEstimateKey = 0,
   onFetchFeeEstimate,
+  onReviewedNetworkFee,
 }: {
   surface: 'popup' | 'sidepanel'
   draft: SendDraft
@@ -31,7 +34,10 @@ export function SendSummaryScreen({
   submitLabel?: string
   onBack: () => void
   onSend: () => void
-  onFetchFeeEstimate: () => Promise<BuildSendTxResponse | null>
+  feeEstimateKey?: number
+  onFetchFeeEstimate: () => Promise<SendFeeEstimate>
+  /** Writes the fee the user is reviewing. Ignored when this estimate was superseded. */
+  onReviewedNetworkFee: (fee: NetworkFee | null) => void
 }) {
   const token = draft.token!
   const isSending = sendProgressLabel != null
@@ -42,25 +48,42 @@ export function SendSummaryScreen({
   }, [draft.amount, draft.inputMode, priceUsd])
 
   const [feeDisplay, setFeeDisplay] = useState('Fast | —')
+  const [feeEstimating, setFeeEstimating] = useState(true)
+  /** User-paid fee error from the estimate: the send would be refused, so block it here. */
+  const [feeError, setFeeError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
+    setFeeEstimating(true)
+    setFeeError(null)
+    setFeeDisplay('Fast | —')
+    onReviewedNetworkFee(null)
     void onFetchFeeEstimate().then((res) => {
-      if (cancelled || !res) return
-      const maxFee = formatNetworkFeeLine(res.networkFee)
+      if (cancelled) return
+      setFeeEstimating(false)
+      if (!res) return
+      if (!res.ok) {
+        if (isUserPaidFeeErrorCode(res.error.code)) setFeeError(friendlyError(res.error))
+        return
+      }
+      onReviewedNetworkFee(res.data.networkFee ?? null)
+      const build = res.data
+      const maxFee = formatNetworkFeeLine(build.networkFee)
       if (maxFee) {
         setFeeDisplay(maxFee)
         return
       }
-      const label = res.feeLabel ?? 'Fast'
-      const xlm = res.estimatedFeeXlm ?? '—'
-      const usd = res.estimatedFeeUsd ? ` ($${res.estimatedFeeUsd})` : ''
+      const label = build.feeLabel ?? 'Fast'
+      const xlm = build.estimatedFeeXlm ?? '—'
+      const usd = build.estimatedFeeUsd ? ` ($${build.estimatedFeeUsd})` : ''
       setFeeDisplay(`${label} | ${xlm} XLM${usd}`)
     })
     return () => {
       cancelled = true
     }
-  }, [onFetchFeeEstimate])
+  }, [onFetchFeeEstimate, onReviewedNetworkFee, feeEstimateKey])
+
+  const errorMessage = sendError ?? feeError
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col gap-4 animate-screenIn">
@@ -76,14 +99,19 @@ export function SendSummaryScreen({
             networkLabel={networkLabel}
             feeDisplay={feeDisplay}
           />
-          {sendError && !isSending ? (
+          {errorMessage && !isSending ? (
             <p className="w-full text-center text-sm tracking-[-0.28px] text-red-300">
-              {sendError}
+              {errorMessage}
             </p>
           ) : null}
         </div>
 
-        <SendSummarySubmitButton loading={isSending} onSend={onSend} label={submitLabel} />
+        <SendSummarySubmitButton
+          loading={isSending}
+          disabled={feeEstimating || feeError != null}
+          onSend={onSend}
+          label={submitLabel}
+        />
       </div>
 
       {isSending ? (

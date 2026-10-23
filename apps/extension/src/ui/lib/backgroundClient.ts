@@ -5,7 +5,11 @@ import type {
   SerializableError,
 } from '@latch/types'
 
-import { userPaidFeeErrorMessage } from './networkFee'
+import {
+  NETWORK_FEE_CHANGED_CODE,
+  NETWORK_FEE_CHANGED_MESSAGE,
+  userPaidFeeErrorMessage,
+} from './networkFee'
 
 /**
  * Upper bound so a service worker that never answers cannot pin the UI forever.
@@ -60,6 +64,7 @@ export function friendlyError(e?: SerializableError): string {
   if (e.code === 'V1_AUTH_REQUIRED') return 'Sign in required to continue.'
   const feeMessage = userPaidFeeErrorMessage(e.code)
   if (feeMessage) return feeMessage
+  if (e.code === NETWORK_FEE_CHANGED_CODE) return NETWORK_FEE_CHANGED_MESSAGE
   if (e.code === 'fund_unsupported_mode') {
     return 'Fund via on-ramp is not available for this account type yet.'
   }
