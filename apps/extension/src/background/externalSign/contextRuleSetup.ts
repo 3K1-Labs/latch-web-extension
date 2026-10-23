@@ -17,7 +17,7 @@ import type {
 } from '@latch/types'
 
 import { BackendError } from '../backend'
-import { networkPassphraseFor } from '../network/config'
+import { feeForwarderContractIdFor, networkPassphraseFor } from '../network/config'
 import { accountToSignerType, passkeySetupPrerequisiteError } from '../../ui/lib/sendTx'
 import { webauthnVerifierAddressFromEnv } from '../../ui/lib/latchEnv'
 
@@ -98,9 +98,16 @@ export function resolveExternalSignContextSetup(args: {
 
   let parsed
   try {
-    parsed = parseTxForReview(args.unsignedTxXdr, networkPassphraseFor(network))
+    parsed = parseTxForReview(args.unsignedTxXdr, networkPassphraseFor(network), {
+      feeForwarderId: feeForwarderContractIdFor(network),
+    })
   } catch {
     throw unsupported('Could not read this transaction to set up account permissions.')
+  }
+
+  const smartAccount = account.smartAccountAddress
+  if (parsed.forwardUsers.some((user) => !stellarAddressEquals(user, smartAccount))) {
+    throw unsupported('This transaction charges the network fee to a different wallet.')
   }
 
   const signerType = accountToSignerType(account.mode)

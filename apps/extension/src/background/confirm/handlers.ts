@@ -2,6 +2,7 @@ import type {
   BackgroundMessage,
   BuildSendTxResponse,
   Network,
+  NetworkFee,
   SwapQuotePayload,
 } from '@latch/types'
 
@@ -16,6 +17,12 @@ import { executeMultisigPasskeyApproveInBackground } from './executeMultisigAppr
 import { executeSendSubmitInBackground } from './executeSendSubmit'
 import { executeSwapConfirmInBackground } from './executeSwapConfirm'
 import { finishOutcome } from './finishOutcome'
+import { BackendError } from '../backend'
+import { NETWORK_FEE_CHANGED_CODE } from '../../ui/lib/networkFee'
+
+function isNetworkFeeChangedError(e: unknown): boolean {
+  return e instanceof BackendError && e.code === NETWORK_FEE_CHANGED_CODE
+}
 
 /** Returns true if the message type was handled. */
 export async function tryHandleConfirmMessage(
@@ -78,6 +85,7 @@ export async function tryHandleConfirmMessage(
       const req = message.payload as {
         accountId: string
         quote: SwapQuotePayload
+        shownNetworkFee?: NetworkFee | null
         surface: 'popup' | 'sidepanel'
         outcomePayload?: Record<string, unknown>
       }
@@ -85,6 +93,7 @@ export async function tryHandleConfirmMessage(
         const data = await executeSwapConfirmInBackground({
           accountId: req.accountId,
           quote: req.quote,
+          shownNetworkFee: req.shownNetworkFee,
         })
         const assetOut = req.quote.assetOut
         if (assetOut?.contractId) {
@@ -102,13 +111,15 @@ export async function tryHandleConfirmMessage(
         })
         sendResponse(ok(data))
       } catch (e) {
-        await finishOutcome({
-          surface: req.surface,
-          kind: 'swap',
-          status: 'failure',
-          error: e instanceof Error ? e.message : String(e),
-          payload: req.outcomePayload,
-        })
+        if (!isNetworkFeeChangedError(e)) {
+          await finishOutcome({
+            surface: req.surface,
+            kind: 'swap',
+            status: 'failure',
+            error: e instanceof Error ? e.message : String(e),
+            payload: req.outcomePayload,
+          })
+        }
         throw e
       }
       return true
@@ -120,6 +131,7 @@ export async function tryHandleConfirmMessage(
         draft: SendDraft
         sendTokenPriceUsd: number | null
         network: Network
+        shownNetworkFee?: NetworkFee | null
         surface: 'popup' | 'sidepanel'
         outcomePayload?: Record<string, unknown>
       }
@@ -133,13 +145,15 @@ export async function tryHandleConfirmMessage(
         })
         sendResponse(ok(data))
       } catch (e) {
-        await finishOutcome({
-          surface: req.surface,
-          kind: 'send',
-          status: 'failure',
-          error: e instanceof Error ? e.message : String(e),
-          payload: req.outcomePayload,
-        })
+        if (!isNetworkFeeChangedError(e)) {
+          await finishOutcome({
+            surface: req.surface,
+            kind: 'send',
+            status: 'failure',
+            error: e instanceof Error ? e.message : String(e),
+            payload: req.outcomePayload,
+          })
+        }
         throw e
       }
       return true

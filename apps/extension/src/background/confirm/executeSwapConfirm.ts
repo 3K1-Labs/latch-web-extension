@@ -1,4 +1,5 @@
 import type {
+  NetworkFee,
   PrepareSwapTxResponse,
   SetupSwapRulesRequest,
   StoredAccount,
@@ -22,6 +23,11 @@ import {
   passkeySetupPrerequisiteError,
 } from '../../ui/lib/sendTx'
 import { swapBuildNeedsSignerReconfigure } from '../../ui/lib/swapTx'
+import {
+  NETWORK_FEE_CHANGED_CODE,
+  NETWORK_FEE_CHANGED_MESSAGE,
+  networkFeeChanged,
+} from '../../ui/lib/networkFee'
 
 function accountToSignerType(mode: StoredAccount['mode']): 'passkey' | 'freighter' {
   if (mode === 'passkey' || mode === 'multisig') return 'passkey'
@@ -89,6 +95,8 @@ function errShape(e: unknown): { code?: string; status?: number; message?: strin
 export async function executeSwapConfirmInBackground(args: {
   accountId: string
   quote: SwapQuotePayload
+  /** Fee shown on confirm. Signing is refused when the fresh build is not covered by it. */
+  shownNetworkFee?: NetworkFee | null
 }): Promise<{ prepared: PrepareSwapTxResponse; submit: SubmitTxResponse }> {
   const { accounts } = await getAccounts()
   const activeAccount = accounts.find((a) => a.id === args.accountId)
@@ -119,6 +127,12 @@ export async function executeSwapConfirmInBackground(args: {
       if (swapBuildNeedsSignerReconfigure(prepared, activeAccount)) {
         await runSwapRuleSetup()
         continue
+      }
+      if (networkFeeChanged(args.shownNetworkFee, prepared.networkFee)) {
+        throw new BackendError(NETWORK_FEE_CHANGED_MESSAGE, {
+          status: 409,
+          code: NETWORK_FEE_CHANGED_CODE,
+        })
       }
       const submit = await signAndSubmitBuiltTxInBackground({
         build: prepared,

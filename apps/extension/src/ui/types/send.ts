@@ -1,4 +1,10 @@
-import type { SmartAccountBalanceRow } from '@latch/types'
+import type { BuildSendTxResponse, SerializableError, SmartAccountBalanceRow } from '@latch/types'
+
+/** Summary-screen pre-build. `null` when no estimate applies (e.g. multisig proposals). */
+export type SendFeeEstimate =
+  | { ok: true; data: BuildSendTxResponse }
+  | { ok: false; error: SerializableError }
+  | null
 
 export type SendStep =
   | 'selectToken'

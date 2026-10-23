@@ -3,10 +3,12 @@ import React from 'react'
 export function SendAvailableBalanceRow({
   balance,
   symbol,
+  disabled = false,
   onMax,
 }: {
   balance: string
   symbol: string
+  disabled?: boolean
   onMax: () => void
 }) {
   return (
@@ -22,7 +24,8 @@ export function SendAvailableBalanceRow({
       <button
         type="button"
         onClick={onMax}
-        className="relative flex h-8 shrink-0 items-center justify-center overflow-hidden rounded-[10px] border border-[#2b2a29] px-5 shadow-[0px_12px_13.1px_-8px_rgba(56,56,56,0.1)]"
+        disabled={disabled}
+        className="relative flex h-8 shrink-0 items-center justify-center overflow-hidden rounded-[10px] border border-[#2b2a29] px-5 shadow-[0px_12px_13.1px_-8px_rgba(56,56,56,0.1)] disabled:opacity-50"
       >
         <span
           aria-hidden

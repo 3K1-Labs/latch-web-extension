@@ -55,6 +55,7 @@ export function ExternalSignReviewScreen({
     .join(' · ')
   const confirmBlocked = localReview.confirmBlocked
   const displayError = error ?? (confirmBlocked && !busy ? localReview.confirmBlockedReason : null)
+  const warnings = [...(localReview.warnings ?? []), ...(prepared.warnings ?? [])]
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col animate-screenIn">
@@ -63,9 +64,9 @@ export function ExternalSignReviewScreen({
         <p className="mt-2 text-sm text-muted">{hostname} requests your signature</p>
       </div>
 
-      {prepared.warnings && prepared.warnings.length > 0 ? (
+      {warnings.length > 0 ? (
         <div className="mt-4 rounded-2xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-100">
-          {prepared.warnings.map((w) => (
+          {warnings.map((w) => (
             <div key={w}>{w}</div>
           ))}
         </div>

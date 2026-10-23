@@ -12,7 +12,14 @@ export interface ExternalSignLocalReview {
   invokeContractIds: string[]
   confirmBlocked: boolean
   confirmBlockedReason: string | null
-  code?: 'unparsable_xdr' | 'network_mismatch' | 'account_mismatch' | 'contract_mismatch'
+  code?:
+    | 'unparsable_xdr'
+    | 'network_mismatch'
+    | 'account_mismatch'
+    | 'contract_mismatch'
+    | 'user_mismatch'
+  /** Non-blocking cautions from the local decode (e.g. a fee token other than XLM or USDC). */
+  warnings?: string[]
 }
 
 export interface PrepareSignRequest {

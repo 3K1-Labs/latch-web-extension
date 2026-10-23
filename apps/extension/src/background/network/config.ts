@@ -53,6 +53,20 @@ export function sorobanRpcUrlFor(network: Network): string {
   return DEFAULT_SOROBAN_RPC.testnet
 }
 
+/**
+ * Latch FeeForwarder (latch-relayer `GET /gasless/fee-tokens` → `fee_forwarder`). Review only
+ * unwraps `forward()` on this contract; unset means every `forward()` stays an opaque call.
+ * Never falls back to the testnet contract on mainnet.
+ */
+export function feeForwarderContractIdFor(network: Network): string | undefined {
+  const raw =
+    network === 'mainnet'
+      ? process.env.PLASMO_PUBLIC_FEE_FORWARDER_CONTRACT_ID_MAINNET
+      : process.env.PLASMO_PUBLIC_FEE_FORWARDER_CONTRACT_ID
+  const trimmed = typeof raw === 'string' ? raw.trim() : ''
+  return trimmed.startsWith('C') ? trimmed : undefined
+}
+
 export function stellarExpertNetworkPath(network: Network): 'testnet' | 'public' {
   return network === 'mainnet' ? 'public' : 'testnet'
 }

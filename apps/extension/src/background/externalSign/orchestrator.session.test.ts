@@ -36,6 +36,7 @@ vi.mock('../network/config', () => ({
   getActiveNetwork: () => getActiveNetwork(),
   networkPassphraseFor: (network: 'testnet' | 'mainnet') =>
     network === 'mainnet' ? Networks.PUBLIC : Networks.TESTNET,
+  feeForwarderContractIdFor: () => undefined,
 }))
 
 vi.mock('./allowList', () => ({

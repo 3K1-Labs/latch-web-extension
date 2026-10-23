@@ -1,6 +1,8 @@
-import type { SwapQuotePayload } from '@latch/types'
+import type { NetworkFee, SwapQuotePayload } from '@latch/types'
 
 import { rawToHuman, rawToNumber } from '@latch/swap'
+
+import { formatNetworkFeeLine } from '../lib/networkFee'
 
 export type SwapTokenVm = {
   id: string
@@ -68,7 +70,8 @@ export function formatUsdApprox(amountUsd: number) {
 export function swapQuotePayloadToVm(
   payload: SwapQuotePayload,
   payTokenPriceUsd?: number | null,
-  receiveTokenPriceUsd?: number | null
+  receiveTokenPriceUsd?: number | null,
+  networkFee?: NetworkFee | null
 ): SwapQuoteVm {
   const receiveAmount = rawToNumber(payload.amountOutRaw, payload.assetOut.decimals)
   const minReceived = rawToHuman(payload.amountOutMinRaw, payload.assetOut.decimals)
@@ -93,7 +96,7 @@ export function swapQuotePayloadToVm(
         : `—`,
     slippageLine: `Auto | ${slippagePct}%`,
     minReceivedLine: `${minReceived} ${payload.assetOut.symbol}`,
-    networkFeeLine: '~ — Stellar',
+    networkFeeLine: formatNetworkFeeLine(networkFee) ?? '~ — Stellar',
     receiveAmount,
     receiveUsdApprox: Number.isFinite(receiveUsd) ? formatUsdApprox(receiveUsd) : '≈--',
     receiveAmountLine: `+${formatCompactAmount(receiveAmount, 6)} ${payload.assetOut.symbol}`,

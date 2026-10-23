@@ -2,6 +2,7 @@ import type {
   BuildSendTxRequest,
   BuildSendTxResponse,
   Network,
+  NetworkFee,
   SubmitTxResponse,
 } from '@latch/types'
 
@@ -18,6 +19,11 @@ import {
   isNoContextRuleError,
   passkeySetupPrerequisiteError,
 } from '../../ui/lib/sendTx'
+import {
+  NETWORK_FEE_CHANGED_CODE,
+  NETWORK_FEE_CHANGED_MESSAGE,
+  networkFeeChanged,
+} from '../../ui/lib/networkFee'
 import type { SendDraft } from '../../ui/types/send'
 
 function errShape(e: unknown): { code?: string; status?: number; message?: string } {
@@ -40,6 +46,8 @@ export async function executeSendSubmitInBackground(args: {
   draft: SendDraft
   sendTokenPriceUsd: number | null
   network: Network
+  /** Fee shown on the summary. Signing is refused when the fresh build is not covered by it. */
+  shownNetworkFee?: NetworkFee | null
 }): Promise<{ status: 'success'; hash?: string; submittedAt: string }> {
   const { accounts } = await getAccounts()
   const account = accounts.find((a) => a.id === args.accountId)
@@ -89,6 +97,13 @@ export async function executeSendSubmitInBackground(args: {
         continue
       }
       throw e instanceof Error ? e : new Error(String(e))
+    }
+
+    if (networkFeeChanged(args.shownNetworkFee, build.networkFee)) {
+      throw new BackendError(NETWORK_FEE_CHANGED_MESSAGE, {
+        status: 409,
+        code: NETWORK_FEE_CHANGED_CODE,
+      })
     }
 
     const submitData = await signAndSubmitBuiltTxInBackground({

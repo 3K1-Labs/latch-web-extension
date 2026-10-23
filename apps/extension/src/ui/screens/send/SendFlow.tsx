@@ -1,8 +1,8 @@
 import React from 'react'
 
-import type { BuildSendTxResponse, SmartAccountBalanceRow } from '@latch/types'
+import type { NetworkFee, SmartAccountBalanceRow } from '@latch/types'
 
-import type { SendDraft, SendResult, SendStep } from '../../types/send'
+import type { SendDraft, SendFeeEstimate, SendResult, SendStep } from '../../types/send'
 import { SendEnterAmountScreen } from './SendEnterAmountScreen'
 import { SendFailureScreen } from './SendFailureScreen'
 import { SendReceiptScreen } from './SendReceiptScreen'
@@ -28,7 +28,10 @@ export function SendFlow({
   onDraftChange,
   onStepChange,
   onBackFromSend,
+  feeEstimateKey = 0,
   onFetchFeeEstimate,
+  onReviewedNetworkFee,
+  onResolveMaxAmount,
   onSubmitSend,
   onContinueHome,
   onTryAgainFromFailure,
@@ -49,7 +52,12 @@ export function SendFlow({
   onDraftChange: (patch: Partial<SendDraft>) => void
   onStepChange: (step: SendStep) => void
   onBackFromSend: () => void
-  onFetchFeeEstimate: () => Promise<BuildSendTxResponse | null>
+  /** Bump to make the summary fetch a fresh fee estimate. */
+  feeEstimateKey?: number
+  onFetchFeeEstimate: () => Promise<SendFeeEstimate>
+  /** Called only for the summary estimate that is still the live one. */
+  onReviewedNetworkFee: (fee: NetworkFee | null) => void
+  onResolveMaxAmount: (token: SmartAccountBalanceRow) => Promise<string | null>
   onSubmitSend: () => void
   onContinueHome: () => void
   onTryAgainFromFailure: () => void
@@ -94,6 +102,7 @@ export function SendFlow({
         draft={draft}
         priceUsd={tokenPriceUsd}
         onDraftChange={onDraftChange}
+        onResolveMaxAmount={onResolveMaxAmount}
         onBack={() => onStepChange('selectRecipient')}
         onEditRecipient={() => onStepChange('selectRecipient')}
         onNext={() => onStepChange('summary')}
@@ -113,7 +122,9 @@ export function SendFlow({
         submitLabel={createProposalMode ? 'Create proposal' : 'Send'}
         onBack={() => onStepChange('enterAmount')}
         onSend={onSubmitSend}
+        feeEstimateKey={feeEstimateKey}
         onFetchFeeEstimate={onFetchFeeEstimate}
+        onReviewedNetworkFee={onReviewedNetworkFee}
       />
     )
   }

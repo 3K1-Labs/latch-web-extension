@@ -25,6 +25,8 @@ export function ConfirmSwapScreen({
   resolveSwapToken,
   receiveAddress,
   busy = false,
+  confirmDisabled = false,
+  feeError = null,
   onBackOrCancel,
   onConfirm,
 }: {
@@ -34,6 +36,8 @@ export function ConfirmSwapScreen({
   resolveSwapToken: (id: string) => SwapTokenVm | undefined
   receiveAddress?: string
   busy?: boolean
+  confirmDisabled?: boolean
+  feeError?: string | null
   onBackOrCancel: () => void
   onConfirm: () => void
 }) {
@@ -48,7 +52,7 @@ export function ConfirmSwapScreen({
   const quoteRemainingMs = quote.quotePayload.expiresAtMs - nowMs
   const quoteExpired = quoteRemainingMs <= 0
   const quoteExpiryLine = quoteExpired
-    ? 'Quote expired — confirm will refresh price'
+    ? 'Quote expired — refreshing price'
     : `Quote refreshes in ${formatQuoteRemainingMs(quoteRemainingMs)}`
 
   const payToken = useMemo(
@@ -139,7 +143,16 @@ export function ConfirmSwapScreen({
           </div>
         </div>
 
-        <ConfirmSwapFooter busy={busy} onCancel={onBackOrCancel} onConfirm={onConfirm} />
+        {feeError ? (
+          <p className="text-center text-sm tracking-[-0.28px] text-red-300">{feeError}</p>
+        ) : null}
+
+        <ConfirmSwapFooter
+          busy={busy}
+          confirmDisabled={confirmDisabled}
+          onCancel={onBackOrCancel}
+          onConfirm={onConfirm}
+        />
       </div>
     </div>
   )
