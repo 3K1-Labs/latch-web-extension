@@ -31,9 +31,9 @@ import { networkFeeChanged, networkFeeEquals } from '../../ui/lib/networkFee'
 import { isReviewAgainError, reviewAgainError } from './reviewAgain'
 import { reviewedSwapBody, takeReviewedBuild } from './reviewedBuildStore'
 
-function accountToSignerType(mode: StoredAccount['mode']): 'passkey' | 'freighter' {
+function accountToSignerType(mode: StoredAccount['mode']): 'passkey' | 'delegated' {
   if (mode === 'passkey' || mode === 'multisig') return 'passkey'
-  return 'freighter'
+  return 'delegated'
 }
 
 function resolveSwapRouterContractId(
@@ -79,7 +79,7 @@ async function buildSetupSwapRequestFromQuote(
       req.credentialId = account.passkeyCredentialId.trim()
     }
   }
-  if (signerType === 'freighter') {
+  if (signerType === 'delegated') {
     if (!account.gAddress?.trim()) return null
     req.gAddress = account.gAddress
   }

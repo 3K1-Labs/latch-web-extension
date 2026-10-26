@@ -308,7 +308,7 @@ export async function tryHandleCosignMessage(
       const { accounts } = await getAccounts()
       const linked = accounts.find((a) => a.id === req.linkedAccountId)
       if (!linked) throw new Error('Linked account not found')
-      const signerType = linked.mode === 'passkey' ? 'passkey' : 'freighter'
+      const signerType = linked.mode === 'passkey' ? 'passkey' : 'delegated'
       const data = await prepareSign({
         network: await getActiveNetwork(),
         smartAccountAddress: req.smartAccountAddress,

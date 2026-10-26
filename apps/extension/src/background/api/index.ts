@@ -20,9 +20,9 @@ export {
 export { getBackendAccounts, setBackendActiveAccount } from './accounts'
 export { clearLatchApiSession } from './webauthnSession'
 export {
-  getFreighterSmartAccountStatus,
-  createOrConnectFreighter,
-  ensureFreighterSmartAccountDeployed,
+  getDelegatedSmartAccountStatus,
+  createOrConnectDelegated,
+  ensureDelegatedSmartAccountDeployed,
   createOrConnectPasskey,
   ensurePasskeySmartAccountDeployed,
 } from './smartAccount'

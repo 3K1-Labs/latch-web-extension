@@ -55,9 +55,9 @@ export function explainSendDraftNotBuildable(
 }
 
 export function accountToSignerType(mode: AccountMode): SendSignerType {
-  // 'freighter' is the backend wire value for delegated G-signer builds (mnemonic accounts).
+  // Mnemonic accounts sign as a Delegated(gAddress) signer.
   if (mode === 'passkey' || mode === 'multisig') return 'passkey'
-  return 'freighter'
+  return 'delegated'
 }
 
 export function buildSendRequestFromDraft(
@@ -97,7 +97,7 @@ export function buildSendRequestFromDraft(
     return null
   }
 
-  if (signerType === 'freighter' && account.gAddress) {
+  if (signerType === 'delegated' && account.gAddress) {
     req.signerG = account.gAddress
   }
   const keyDataHex = account.mode === 'passkey' ? account.passkeyKeyDataHex?.trim() : undefined
@@ -142,7 +142,7 @@ export function buildSetupRequestFromDraft(
       req.credentialId = credentialId
     }
   }
-  if (signerType === 'freighter') {
+  if (signerType === 'delegated') {
     if (!account.gAddress?.trim()) return null
     req.gAddress = account.gAddress
   }

@@ -1,46 +1,46 @@
 import { isContractInstanceDeployed } from '@latch/stellar'
 
 import type {
-  CreateOrConnectFreighterRequest,
-  CreateOrConnectFreighterResponse,
+  CreateOrConnectDelegatedRequest,
+  CreateOrConnectDelegatedResponse,
   CreateOrConnectPasskeyRequest,
   CreateOrConnectPasskeyResponse,
-  FreighterSmartAccountStatusResponse,
+  DelegatedSmartAccountStatusResponse,
 } from '@latch/types'
 
 import { getActiveNetwork, sorobanRpcUrlFor } from '../network/config'
 import { latchFetch } from './client'
 import { withActiveNetwork } from './withActiveNetwork'
 
-export async function getFreighterSmartAccountStatus(
+export async function getDelegatedSmartAccountStatus(
   gAddress: string
-): Promise<FreighterSmartAccountStatusResponse> {
+): Promise<DelegatedSmartAccountStatusResponse> {
   const q = encodeURIComponent(gAddress)
   const network = await getActiveNetwork()
-  return await latchFetch<FreighterSmartAccountStatusResponse>(
-    `/api/smart-account/freighter?gAddress=${q}&network=${encodeURIComponent(network)}`,
+  return await latchFetch<DelegatedSmartAccountStatusResponse>(
+    `/api/smart-account/delegated?gAddress=${q}&network=${encodeURIComponent(network)}`,
     { method: 'GET' }
   )
 }
 
-export async function createOrConnectFreighter(
-  req: CreateOrConnectFreighterRequest
-): Promise<CreateOrConnectFreighterResponse> {
-  return await latchFetch<CreateOrConnectFreighterResponse>('/api/smart-account/freighter', {
+export async function createOrConnectDelegated(
+  req: CreateOrConnectDelegatedRequest
+): Promise<CreateOrConnectDelegatedResponse> {
+  return await latchFetch<CreateOrConnectDelegatedResponse>('/api/smart-account/delegated', {
     method: 'POST',
     body: JSON.stringify(await withActiveNetwork(req)),
   })
 }
 
 /** GET predict/deploy flow: returns smart account address; POST only if not yet deployed. */
-export async function ensureFreighterSmartAccountDeployed(
+export async function ensureDelegatedSmartAccountDeployed(
   gAddress: string
-): Promise<CreateOrConnectFreighterResponse> {
-  const status = await getFreighterSmartAccountStatus(gAddress)
+): Promise<CreateOrConnectDelegatedResponse> {
+  const status = await getDelegatedSmartAccountStatus(gAddress)
   if (status.deployed) {
     return { smartAccountAddress: status.smartAccountAddress, alreadyDeployed: true }
   }
-  return await createOrConnectFreighter({ gAddress })
+  return await createOrConnectDelegated({ gAddress })
 }
 
 export async function createOrConnectPasskey(
