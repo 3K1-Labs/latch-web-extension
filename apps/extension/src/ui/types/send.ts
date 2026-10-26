@@ -1,4 +1,16 @@
-import type { SmartAccountBalanceRow } from '@latch/types'
+import type { BuildSendTxResponse, SerializableError, SmartAccountBalanceRow } from '@latch/types'
+
+/** Error code for a one-time wallet setup that failed before Confirm could be enabled. */
+export const SEND_SETUP_FAILED_CODE = 'setup_failed'
+
+/** Summary-screen pre-build. `null` when no estimate applies (e.g. multisig proposals). */
+export type SendFeeEstimate =
+  | { ok: true; data: BuildSendTxResponse }
+  | { ok: false; error: SerializableError }
+  | null
+
+/** Fetch the summary estimate; `onSettingUp` fires if first-time wallet setup has to run first. */
+export type FetchSendFeeEstimate = (opts?: { onSettingUp?: () => void }) => Promise<SendFeeEstimate>
 
 export type SendStep =
   | 'selectToken'

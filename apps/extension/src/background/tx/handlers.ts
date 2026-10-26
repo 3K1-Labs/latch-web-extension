@@ -21,6 +21,7 @@ import {
 import { signDelegatedGAddressEntry } from '../delegatedLocalSign'
 import type { OkFn } from '../messageResponse'
 import { getMnemonicKeypair } from '../mnemonicSession'
+import { saveReviewedBuild } from '../confirm/reviewedBuildStore'
 import { getActiveNetwork } from '../network/config'
 import {
   maybeProbeDelegatedEnforcingSim,
@@ -85,7 +86,10 @@ export async function tryHandleTxMessage(
     case 'BUILD_SEND_TX': {
       const req = message.payload as BuildSendTxRequest
       const network = req.network ?? (await getActiveNetwork())
+      const startedAt = Date.now()
       const data = await buildSendTx({ ...req, network })
+      // Confirm signs this build, held here, only if it is made from the same request.
+      void saveReviewedBuild('send', req, data, startedAt)
       sendResponse(ok(data))
       return true
     }

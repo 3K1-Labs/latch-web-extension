@@ -14,10 +14,16 @@ export type WalletOutcomeKind =
   /** Adding or removing a backup passkey signer. */
   | 'accountSigners'
 
+/**
+ * `review_again`: nothing was signed (fee changed, build expired, or one-time setup finished).
+ * The UI restores the draft/quote on the review screen and re-runs the estimate.
+ */
+export type WalletOutcomeStatus = 'in_progress' | 'success' | 'failure' | 'review_again'
+
 export type PendingWalletOutcome = {
   version: 1
   kind: WalletOutcomeKind
-  status: 'in_progress' | 'success' | 'failure'
+  status: WalletOutcomeStatus
   createdAt: number
   updatedAt: number
   error?: string
@@ -96,7 +102,7 @@ export async function consumePendingWalletOutcomeIf(
 
 export async function finalizePendingWalletOutcome(args: {
   kind: WalletOutcomeKind
-  status: 'success' | 'failure'
+  status: Exclude<WalletOutcomeStatus, 'in_progress'>
   error?: string
   payload?: Record<string, unknown>
 }): Promise<PendingWalletOutcome> {

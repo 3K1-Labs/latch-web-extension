@@ -5,6 +5,13 @@ import type {
   SerializableError,
 } from '@latch/types'
 
+import {
+  NETWORK_FEE_CHANGED_CODE,
+  NETWORK_FEE_CHANGED_MESSAGE,
+  REVIEW_AGAIN_CODE,
+  userPaidFeeErrorMessage,
+} from './networkFee'
+
 /**
  * Upper bound so a service worker that never answers cannot pin the UI forever.
  * Must stay long enough for a passkey ceremony and a mainnet deploy (both run
@@ -56,6 +63,11 @@ export function friendlyError(e?: SerializableError): string {
     return 'Extension background is out of date. Reload Latch on chrome://extensions and try again.'
   }
   if (e.code === 'V1_AUTH_REQUIRED') return 'Sign in required to continue.'
+  const feeMessage = userPaidFeeErrorMessage(e.code)
+  if (feeMessage) return feeMessage
+  if (e.code === NETWORK_FEE_CHANGED_CODE) return NETWORK_FEE_CHANGED_MESSAGE
+  // The background words each reason (out of date, setup ran) itself.
+  if (e.code === REVIEW_AGAIN_CODE && e.message) return e.message
   if (e.code === 'fund_unsupported_mode') {
     return 'Fund via on-ramp is not available for this account type yet.'
   }

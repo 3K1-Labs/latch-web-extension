@@ -7,15 +7,19 @@ import {
   Networks,
   TransactionBuilder,
   nativeToScVal,
+  xdr,
 } from '@stellar/stellar-sdk'
 import { describe, expect, it, vi } from 'vitest'
 import { SOROSWAP_CONFIG } from '@latch/swap'
 
 import type { StoredAccount } from '@latch/types'
 
+const FEE_FORWARDER = 'CCQXTY4EG56OP7APGGJSY5YITFNSXWB4EKPZ7KKMYEHW7BXIKW44HSTA'
+
 vi.mock('../network/config', () => ({
   networkPassphraseFor: (network: 'testnet' | 'mainnet') =>
     network === 'mainnet' ? Networks.PUBLIC : Networks.TESTNET,
+  feeForwarderContractIdFor: () => FEE_FORWARDER,
 }))
 
 vi.mock('../../ui/lib/latchEnv', () => ({
@@ -51,6 +55,29 @@ function sacTransferXdr(sacContractId: string): string {
         nativeToScVal(10n, { type: 'i128' })
       )
     )
+    .setTimeout(30)
+    .build()
+    .toXDR()
+}
+
+function forwardXdr(forwarder: string, token: string, user: string): string {
+  const args = [
+    new Address(token).toScVal(),
+    nativeToScVal(1n, { type: 'i128' }),
+    nativeToScVal(1n, { type: 'i128' }),
+    nativeToScVal(1120, { type: 'u32' }),
+    new Address(token).toScVal(),
+    xdr.ScVal.scvSymbol('transfer'),
+    xdr.ScVal.scvVec([
+      new Address(user).toScVal(),
+      new Address(Keypair.random().publicKey()).toScVal(),
+      nativeToScVal(1n, { type: 'i128' }),
+    ]),
+    new Address(user).toScVal(),
+    new Address(Keypair.random().publicKey()).toScVal(),
+  ]
+  return txBuilder()
+    .addOperation(new Contract(forwarder).call('forward', ...args))
     .setTimeout(30)
     .build()
     .toXDR()
@@ -145,6 +172,50 @@ describe('resolveExternalSignContextSetup', () => {
         account: PASSKEY_ACCOUNT,
       })
     ).toThrowError(expect.objectContaining({ code: CONTEXT_RULE_SETUP_UNSUPPORTED }))
+  })
+
+  it('sets up rules for the asset inside a genuine FeeForwarder forward()', () => {
+    const usdc = new Asset('USDC', TESTNET_USDC_ISSUER).contractId(Networks.TESTNET)
+
+    const setup = resolveExternalSignContextSetup({
+      unsignedTxXdr: forwardXdr(FEE_FORWARDER, usdc, SMART),
+      network: 'testnet',
+      account: PASSKEY_ACCOUNT,
+    })
+
+    expect(setup.kind).toBe('send')
+    expect(setup.body).toMatchObject({ assetId: 'USDC' })
+  })
+
+  it('does not set up send rules for a lookalike forward() on another contract', () => {
+    const usdc = new Asset('USDC', TESTNET_USDC_ISSUER).contractId(Networks.TESTNET)
+    const attacker = new Asset('EVIL', TESTNET_USDC_ISSUER).contractId(Networks.TESTNET)
+
+    expect(() =>
+      resolveExternalSignContextSetup({
+        unsignedTxXdr: forwardXdr(attacker, usdc, SMART),
+        network: 'testnet',
+        account: PASSKEY_ACCOUNT,
+      })
+    ).toThrowError(expect.objectContaining({ code: CONTEXT_RULE_SETUP_UNSUPPORTED }))
+  })
+
+  it('refuses a forward() that charges the fee to a different wallet', () => {
+    const usdc = new Asset('USDC', TESTNET_USDC_ISSUER).contractId(Networks.TESTNET)
+    const otherWallet = new Asset('EVIL', TESTNET_USDC_ISSUER).contractId(Networks.TESTNET)
+
+    expect(() =>
+      resolveExternalSignContextSetup({
+        unsignedTxXdr: forwardXdr(FEE_FORWARDER, usdc, otherWallet),
+        network: 'testnet',
+        account: PASSKEY_ACCOUNT,
+      })
+    ).toThrowError(
+      expect.objectContaining({
+        code: CONTEXT_RULE_SETUP_UNSUPPORTED,
+        message: 'This transaction charges the network fee to a different wallet.',
+      })
+    )
   })
 
   it('fails closed for an unparsable XDR', () => {

@@ -1,4 +1,5 @@
 import type {
+  NetworkFee,
   PrepareSwapTxResponse,
   SetupSwapRulesRequest,
   StoredAccount,
@@ -12,7 +13,11 @@ import { BackendError } from '../backend'
 import { getActiveNetwork } from '../network/config'
 import { getAccounts } from '../storage'
 import { runPrepareSwapTx } from '../swap/handlers'
-import { ensureSwapRulesConfigured } from '../tx/ensureContextRules'
+import {
+  contextSetupKey,
+  ensureSwapRulesConfigured,
+  withInflightContextSetup,
+} from '../tx/ensureContextRules'
 import { signAndSubmitBuiltTxInBackground } from '../tx/signBuiltTx'
 import { webauthnVerifierAddressFromEnv } from '../../ui/lib/latchEnv'
 import {
@@ -22,6 +27,9 @@ import {
   passkeySetupPrerequisiteError,
 } from '../../ui/lib/sendTx'
 import { swapBuildNeedsSignerReconfigure } from '../../ui/lib/swapTx'
+import { networkFeeChanged, networkFeeEquals } from '../../ui/lib/networkFee'
+import { isReviewAgainError, reviewAgainError } from './reviewAgain'
+import { reviewedSwapBody, takeReviewedBuild } from './reviewedBuildStore'
 
 function accountToSignerType(mode: StoredAccount['mode']): 'passkey' | 'freighter' {
   if (mode === 'passkey' || mode === 'multisig') return 'passkey'
@@ -89,6 +97,13 @@ function errShape(e: unknown): { code?: string; status?: number; message?: strin
 export async function executeSwapConfirmInBackground(args: {
   accountId: string
   quote: SwapQuotePayload
+  /** Fee shown on confirm. */
+  shownNetworkFee?: NetworkFee | null
+  /**
+   * The user reviewed a prepare for exactly this quote. The background holds that prepare; it is
+   * signed as-is while valid, and never rebuilt behind the user's back.
+   */
+  reviewed?: boolean
 }): Promise<{ prepared: PrepareSwapTxResponse; submit: SubmitTxResponse }> {
   const { accounts } = await getAccounts()
   const activeAccount = accounts.find((a) => a.id === args.accountId)
@@ -98,16 +113,40 @@ export async function executeSwapConfirmInBackground(args: {
   const isSoroswap = quoteForTx.providerId === 'soroswap'
 
   async function runSwapRuleSetup(): Promise<void> {
-    const setupPayload = await buildSetupSwapRequestFromQuote(quoteForTx, activeAccount!)
-    if (!setupPayload) {
-      throw new Error(passkeySetupPrerequisiteError(activeAccount!) ?? 'Invalid swap setup details')
-    }
-
-    await ensureSwapRulesConfigured({ setupBody: setupPayload, activeAccount: activeAccount! })
+    await setupSwapRulesForAccount(activeAccount!, quoteForTx)
   }
 
-  if (isSoroswap) {
-    await runSwapRuleSetup()
+  if (args.reviewed) {
+    // Missing, expired, priced differently, or needing new rules: sign nothing, show it again.
+    const prepared = await takeReviewedBuild<PrepareSwapTxResponse>(
+      'swap',
+      reviewedSwapBody(args.accountId, quoteForTx)
+    )
+    if (!prepared) {
+      console.warn('[latch:background] no held swap build for this quote; asking to review again')
+      throw reviewAgainError('out_of_date')
+    }
+    if (!networkFeeEquals(args.shownNetworkFee, prepared.networkFee)) {
+      throw reviewAgainError('fee_changed')
+    }
+    if (swapBuildNeedsSignerReconfigure(prepared, activeAccount)) {
+      throw reviewAgainError('setup_needed')
+    }
+    try {
+      const submit = await signAndSubmitBuiltTxInBackground({
+        build: prepared,
+        activeAccount,
+      })
+      return { prepared, submit }
+    } catch (e) {
+      // Rules went missing since review: back to confirm, which sets them up and re-prices.
+      // Signing does not build, so a generic 400 here is a real failure, not a setup signal.
+      const shape = errShape(e)
+      if (isNoContextRuleError(shape) || isSwapRuleReconfigureError(shape)) {
+        throw reviewAgainError('setup_needed')
+      }
+      throw e
+    }
   }
 
   for (let attempt = 0; attempt < 5; attempt++) {
@@ -120,12 +159,17 @@ export async function executeSwapConfirmInBackground(args: {
         await runSwapRuleSetup()
         continue
       }
+      // Backstop for a rebuild with no reviewed build: never sign a fee the user didn't see.
+      if (networkFeeChanged(args.shownNetworkFee, prepared.networkFee)) {
+        throw reviewAgainError('fee_changed')
+      }
       const submit = await signAndSubmitBuiltTxInBackground({
         build: prepared,
         activeAccount,
       })
       return { prepared, submit }
     } catch (e) {
+      if (isReviewAgainError(e)) throw e
       const shape = errShape(e)
       if (isNoContextRuleError(shape) || isSwapRuleReconfigureError(shape)) {
         await runSwapRuleSetup()
@@ -140,4 +184,36 @@ export async function executeSwapConfirmInBackground(args: {
   }
 
   throw new Error('Swap setup did not complete')
+}
+
+/** One-time swap-rule setup for this quote's router. */
+export async function setupSwapRulesForAccount(
+  account: StoredAccount,
+  quote: SwapQuotePayload
+): Promise<'configured' | 'already_configured'> {
+  const setupBody = await buildSetupSwapRequestFromQuote(quote, account)
+  if (!setupBody) {
+    throw new Error(passkeySetupPrerequisiteError(account) ?? 'Invalid swap setup details')
+  }
+  // Coalesced: a re-fired prepare must not open a second passkey ceremony for the same rules.
+  const key = contextSetupKey({
+    network: setupBody.network ?? '',
+    smartAccountAddress: setupBody.smartAccountAddress,
+    kind: 'swap',
+    target: setupBody.routerContractId ?? setupBody.providerId ?? 'default',
+  })
+  return withInflightContextSetup(key, () =>
+    ensureSwapRulesConfigured({ setupBody, activeAccount: account })
+  )
+}
+
+/** Same, by account id: run before Confirm enables. */
+export async function setupSwapRulesInBackground(args: {
+  accountId: string
+  quote: SwapQuotePayload
+}): Promise<'configured' | 'already_configured'> {
+  const { accounts } = await getAccounts()
+  const account = accounts.find((a) => a.id === args.accountId)
+  if (!account) throw new Error('No active account')
+  return setupSwapRulesForAccount(account, args.quote)
 }

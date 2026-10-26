@@ -18,7 +18,11 @@ export {
 export { buildClassicNativePaymentTx } from './classicXlmPayment'
 export { buildUnsignedSacTransferTx } from './sacTransfer'
 export { assessExternalSignReview, parseTxForReview } from './parseTxForReview'
-export type { AssessExternalSignReviewParams, ParsedTxForReview } from './parseTxForReview'
+export type {
+  AssessExternalSignReviewParams,
+  ParsedTxForReview,
+  ParseTxForReviewOptions,
+} from './parseTxForReview'
 
 export {
   createRpcServer,
@@ -56,6 +60,7 @@ export {
 
 export {
   CURATED_PORTFOLIO_ASSETS,
+  FEE_FORWARDER_CONTRACT_ID,
   curatedAssetToProbe,
   curatedPortfolioProbes,
 } from './curatedAssets'

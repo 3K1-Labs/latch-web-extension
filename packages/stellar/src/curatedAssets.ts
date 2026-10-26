@@ -10,6 +10,17 @@ export type CuratedAsset = {
   decimals?: number
 }
 
+/**
+ * Latch FeeForwarder C-address per network (latch-relayer `GET /gasless/fee-tokens` →
+ * `fee_forwarder`). `parseTxForReview` unwraps `forward()` only on this contract.
+ * Mainnet is unset until that value is confirmed — never fall back to the testnet id.
+ */
+export const FEE_FORWARDER_CONTRACT_ID: Record<StellarNetwork, string | undefined> = {
+  testnet: 'CCQXTY4EG56OP7APGGJSY5YITFNSXWB4EKPZ7KKMYEHW7BXIKW44HSTA',
+  // Confirm against latch-relayer GET /gasless/fee-tokens → fee_forwarder before shipping unwrap.
+  mainnet: undefined,
+}
+
 /** Network-canonical issuers for portfolio + swap probing (SAC derived at runtime). */
 export const CURATED_PORTFOLIO_ASSETS: Record<StellarNetwork, CuratedAsset[]> = {
   testnet: [

@@ -2,8 +2,10 @@ import React, { useEffect, useMemo, useState } from 'react'
 
 import type { BuildSendTxResponse } from '@latch/types'
 
+import { friendlyError } from '../../lib/backgroundClient'
+import { formatNetworkFeeLine, isUserPaidFeeErrorCode } from '../../lib/networkFee'
 import { fiatToCrypto } from '../../lib/sendAmount'
-import type { SendDraft } from '../../types/send'
+import { SEND_SETUP_FAILED_CODE, type FetchSendFeeEstimate, type SendDraft } from '../../types/send'
 import { SendSummaryFacts } from './SendSummaryFacts'
 import { SendSummaryHeader } from './SendSummaryHeader'
 import { SendSummaryHero } from './SendSummaryHero'
@@ -19,7 +21,9 @@ export function SendSummaryScreen({
   submitLabel,
   onBack,
   onSend,
+  feeEstimateKey = 0,
   onFetchFeeEstimate,
+  onReviewedBuild,
 }: {
   surface: 'popup' | 'sidepanel'
   draft: SendDraft
@@ -30,7 +34,10 @@ export function SendSummaryScreen({
   submitLabel?: string
   onBack: () => void
   onSend: () => void
-  onFetchFeeEstimate: () => Promise<BuildSendTxResponse | null>
+  feeEstimateKey?: number
+  onFetchFeeEstimate: FetchSendFeeEstimate
+  /** The build the user is reviewing (the one Confirm signs). Null while a new estimate runs. */
+  onReviewedBuild: (build: BuildSendTxResponse | null) => void
 }) {
   const token = draft.token!
   const isSending = sendProgressLabel != null
@@ -41,20 +48,53 @@ export function SendSummaryScreen({
   }, [draft.amount, draft.inputMode, priceUsd])
 
   const [feeDisplay, setFeeDisplay] = useState('Fast | —')
+  const [feeEstimating, setFeeEstimating] = useState(true)
+  /** User-paid fee error from the estimate: the send would be refused, so block it here. */
+  const [feeError, setFeeError] = useState<string | null>(null)
+  /** One-time wallet setup failed (e.g. the passkey prompt was dismissed): offer a retry. */
+  const [setupFailed, setSetupFailed] = useState(false)
+  const [retryKey, setRetryKey] = useState(0)
 
   useEffect(() => {
     let cancelled = false
-    void onFetchFeeEstimate().then((res) => {
-      if (cancelled || !res) return
-      const label = res.feeLabel ?? 'Fast'
-      const xlm = res.estimatedFeeXlm ?? '—'
-      const usd = res.estimatedFeeUsd ? ` ($${res.estimatedFeeUsd})` : ''
+    setFeeEstimating(true)
+    setFeeError(null)
+    setSetupFailed(false)
+    setFeeDisplay('Fast | —')
+    onReviewedBuild(null)
+    void onFetchFeeEstimate({
+      onSettingUp: () => {
+        if (!cancelled) setFeeDisplay('Setting up your wallet…')
+      },
+    }).then((res) => {
+      if (cancelled) return
+      setFeeEstimating(false)
+      if (!res) return
+      if (!res.ok) {
+        if (res.error.code === SEND_SETUP_FAILED_CODE) setSetupFailed(true)
+        if (isUserPaidFeeErrorCode(res.error.code) || res.error.code === SEND_SETUP_FAILED_CODE) {
+          setFeeError(friendlyError(res.error))
+        }
+        return
+      }
+      onReviewedBuild(res.data)
+      const build = res.data
+      const maxFee = formatNetworkFeeLine(build.networkFee)
+      if (maxFee) {
+        setFeeDisplay(maxFee)
+        return
+      }
+      const label = build.feeLabel ?? 'Fast'
+      const xlm = build.estimatedFeeXlm ?? '—'
+      const usd = build.estimatedFeeUsd ? ` ($${build.estimatedFeeUsd})` : ''
       setFeeDisplay(`${label} | ${xlm} XLM${usd}`)
     })
     return () => {
       cancelled = true
     }
-  }, [onFetchFeeEstimate])
+  }, [onFetchFeeEstimate, onReviewedBuild, feeEstimateKey, retryKey])
+
+  const errorMessage = sendError ?? feeError
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col gap-4 animate-screenIn">
@@ -70,14 +110,19 @@ export function SendSummaryScreen({
             networkLabel={networkLabel}
             feeDisplay={feeDisplay}
           />
-          {sendError && !isSending ? (
+          {errorMessage && !isSending ? (
             <p className="w-full text-center text-sm tracking-[-0.28px] text-red-300">
-              {sendError}
+              {errorMessage}
             </p>
           ) : null}
         </div>
 
-        <SendSummarySubmitButton loading={isSending} onSend={onSend} label={submitLabel} />
+        <SendSummarySubmitButton
+          loading={isSending}
+          disabled={feeEstimating || (feeError != null && !setupFailed)}
+          onSend={setupFailed ? () => setRetryKey((n) => n + 1) : onSend}
+          label={setupFailed ? 'Try again' : submitLabel}
+        />
       </div>
 
       {isSending ? (

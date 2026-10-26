@@ -17,6 +17,7 @@ import type {
 } from '@latch/types'
 
 import { friendlyError, sendToBackground } from './backgroundClient'
+import { isUserPaidFeeErrorCode } from './networkFee'
 import { fiatToCrypto } from './sendAmount'
 import { isValidStellarGAddress } from './sendAddress'
 import { webauthnVerifierAddressFromEnv } from './latchEnv'
@@ -299,6 +300,7 @@ export function isPrepareSignMissingSetupError(error?: {
   message?: string
 }): boolean {
   if (!error) return false
+  if (isUserPaidFeeErrorCode(error.code)) return false
   if (error.status === 409 && error.code === 'NO_CONTEXT_RULE') return true
   if (error.status !== 400) return false
   const code = (error.code ?? '').toLowerCase()
@@ -322,6 +324,7 @@ export function isBuildSendMissingSetupError(error?: {
   message?: string
 }): boolean {
   if (!error) return false
+  if (isUserPaidFeeErrorCode(error.code)) return false
   if (isNoContextRuleError(error)) return true
   if (error.status !== 400) return false
   const code = (error.code ?? '').toLowerCase()

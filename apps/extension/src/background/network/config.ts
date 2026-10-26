@@ -5,6 +5,7 @@
 
 import { Networks } from '@stellar/stellar-sdk'
 
+import { FEE_FORWARDER_CONTRACT_ID } from '@latch/stellar'
 import type { Network } from '@latch/types'
 
 export type StellarNetworkId = Network
@@ -51,6 +52,21 @@ export function sorobanRpcUrlFor(network: Network): string {
   const raw = process.env.PLASMO_PUBLIC_SOROBAN_RPC_URL
   if (typeof raw === 'string' && raw.trim() !== '') return raw.trim()
   return DEFAULT_SOROBAN_RPC.testnet
+}
+
+/**
+ * Latch FeeForwarder (latch-relayer `GET /gasless/fee-tokens` → `fee_forwarder`). Review only
+ * unwraps `forward()` on this contract. The env var wins; otherwise the per-network constant in
+ * `@latch/stellar` (testnet only today). Unknown means every `forward()` stays an opaque call.
+ * Never falls back to the testnet contract on mainnet.
+ */
+export function feeForwarderContractIdFor(network: Network): string | undefined {
+  const raw =
+    network === 'mainnet'
+      ? process.env.PLASMO_PUBLIC_FEE_FORWARDER_CONTRACT_ID_MAINNET
+      : process.env.PLASMO_PUBLIC_FEE_FORWARDER_CONTRACT_ID
+  const trimmed = typeof raw === 'string' ? raw.trim() : ''
+  return trimmed.startsWith('C') ? trimmed : FEE_FORWARDER_CONTRACT_ID[network]
 }
 
 export function stellarExpertNetworkPath(network: Network): 'testnet' | 'public' {

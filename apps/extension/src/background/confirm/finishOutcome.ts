@@ -1,4 +1,8 @@
-import { finalizePendingWalletOutcome, type WalletOutcomeKind } from '../../lib/walletOutcome'
+import {
+  finalizePendingWalletOutcome,
+  type WalletOutcomeKind,
+  type WalletOutcomeStatus,
+} from '../../lib/walletOutcome'
 import { restoreWalletUiAfterConfirm } from './restoreWalletUi'
 
 /**
@@ -12,7 +16,7 @@ import { restoreWalletUiAfterConfirm } from './restoreWalletUi'
 export async function finishOutcome(args: {
   surface?: 'popup' | 'sidepanel'
   kind: WalletOutcomeKind
-  status: 'success' | 'failure'
+  status: Exclude<WalletOutcomeStatus, 'in_progress'>
   error?: string
   payload?: Record<string, unknown>
 }): Promise<void> {

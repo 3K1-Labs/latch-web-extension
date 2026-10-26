@@ -1,12 +1,12 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react'
 
 import type {
+  BackgroundRequestPayloadByType,
+  BackgroundResponseDataByType,
   GetAssetIconDataUrlsRequest,
   GetAssetIconDataUrlsResponse,
   GetMarketPricesRequest,
   GetMarketPricesResponse,
-  GetSwapQuoteRequest,
-  GetSwapQuoteResponse,
   GetSwapTokenCatalogRequest,
   GetSwapTokenCatalogResponse,
   StoredAccount,
@@ -17,17 +17,15 @@ import { ConfirmSwapScreen } from '../screens/ConfirmSwapScreen'
 import { SwapFailureScreen } from '../screens/swap/SwapFailureScreen'
 import { SwapSuccessScreen } from '../screens/swap/SwapSuccessScreen'
 import { friendlyError, logLatchError, sendToBackground } from '../lib/backgroundClient'
+import { isReviewAgainCode } from '../lib/networkFee'
 import {
   clearPendingWalletOutcome,
   consumePendingWalletOutcomeIf,
   writePendingWalletOutcome,
 } from '../../lib/walletOutcome'
 import type { SwapDraft, SwapQuoteVm, SwapTokenVm } from '../swap/swapVm'
-import {
-  mergeSwapTokenCatalogs,
-  pickDefaultReceiveTokenId,
-  swapQuotePayloadToVm,
-} from '../swap/swapVm'
+import { mergeSwapTokenCatalogs, pickDefaultReceiveTokenId } from '../swap/swapVm'
+import { useSwapConfirmQuote } from '../swap/useSwapConfirmQuote'
 import type { Route, Surface } from '../routing/routes'
 
 export type SwapOverlayFlags = {
@@ -63,7 +61,6 @@ export function SwapRouteViews({
   registerOpenSwap?: (open: () => void) => void
 }) {
   const [swapDraft, setSwapDraft] = useState<SwapDraft | null>(null)
-  const [swapQuote, setSwapQuote] = useState<SwapQuoteVm | null>(null)
   const [swapPayTokenCatalog, setSwapPayTokenCatalog] = useState<SwapTokenVm[]>([])
   const [swapReceiveTokenCatalog, setSwapReceiveTokenCatalog] = useState<SwapTokenVm[]>([])
   const [swapPreferredReceiveTokenIds, setSwapPreferredReceiveTokenIds] = useState<string[]>([])
@@ -211,12 +208,25 @@ export function SwapRouteViews({
 
   const resolveSwapToken = useCallback((id: string) => swapTokenById.get(id), [swapTokenById])
 
+  const confirm = useSwapConfirmQuote({
+    route,
+    surface,
+    activeAccount,
+    draft: swapDraft,
+    step: swapStep,
+    busy: swapBusy,
+    resolveSwapToken,
+    priceUsdBySymbol: swapTokenPriceUsdBySymbol,
+  })
+  const swapQuote = confirm.quote
+  const setSwapQuote = confirm.setQuote
+
   function resetSwapFlow() {
     setSwapDraft(null)
-    setSwapQuote(null)
     setSwapBusy(false)
     setSwapStep('confirm')
     setSwapFailureDetail(null)
+    confirm.reset()
   }
 
   const openSwapFromNav = useCallback(() => {
@@ -260,34 +270,6 @@ export function SwapRouteViews({
     })
   }, [onOverlayFlags, swapCatalogLoading, swapPayTokenCatalogWithIcons.length, swapBusy, swapStep])
 
-  async function refreshSwapQuoteForConfirm(): Promise<SwapQuoteVm> {
-    if (!activeAccount?.id || !swapDraft || !swapQuote) {
-      throw new Error('Swap session expired')
-    }
-    const payToken = resolveSwapToken(swapDraft.payTokenId)
-    const receiveToken = resolveSwapToken(swapDraft.receiveTokenId)
-    if (!payToken || !receiveToken) throw new Error('Unknown swap token')
-
-    const res = await sendToBackground<GetSwapQuoteRequest, GetSwapQuoteResponse>({
-      type: 'GET_SWAP_QUOTE',
-      payload: {
-        accountId: activeAccount.id,
-        assetInId: payToken.id,
-        assetOutId: receiveToken.id,
-        amountIn: swapDraft.payAmount,
-        slippageBps: swapQuote.quotePayload.slippageBps,
-        providerId: swapQuote.quotePayload.providerId,
-      },
-    })
-    if (!res.ok || !res.data) throw new Error(friendlyError(res.error) || 'Swap failed.')
-
-    const payUsd = swapTokenPriceUsdBySymbol[payToken.symbol.toUpperCase()]
-    const receiveUsd = swapTokenPriceUsdBySymbol[receiveToken.symbol.toUpperCase()]
-    const refreshed = swapQuotePayloadToVm(res.data.quote, payUsd, receiveUsd)
-    setSwapQuote(refreshed)
-    return refreshed
-  }
-
   useEffect(() => {
     void (async () => {
       const outcome = await consumePendingWalletOutcomeIf('swap')
@@ -296,7 +278,12 @@ export function SwapRouteViews({
       if (payload.draft) setSwapDraft(payload.draft as SwapDraft)
       if (payload.quote) setSwapQuote(payload.quote as SwapQuoteVm)
       setSwapBusy(false)
-      if (outcome.status === 'success') {
+      if (outcome.status === 'review_again') {
+        // Nothing was signed (fee changed or setup finished): back to the confirm screen, which
+        // prepares again and shows the fee that will be signed.
+        setSwapStep('confirm')
+        confirm.setNotice(outcome.error ?? null)
+      } else if (outcome.status === 'success') {
         setSwapStep('success')
         setSwapFailureDetail(null)
         void onLoadPortfolio()
@@ -310,17 +297,14 @@ export function SwapRouteViews({
 
   async function handleConfirmSwap() {
     if (!activeAccount?.id || !swapQuote || !swapDraft) return
+    if (confirm.isSubmitting()) return
+    if (!confirm.checkBeforeConfirm()) return
 
+    confirm.beginSubmit()
     setSwapBusy(true)
     setSwapFailureDetail(null)
     try {
-      const quoteForTx =
-        swapQuote.quotePayload.providerId === 'soroswap' ||
-        Date.now() >= swapQuote.quotePayload.expiresAtMs - 5_000
-          ? await refreshSwapQuoteForConfirm()
-          : swapQuote
-
-      const outcomePayload = { draft: swapDraft, quote: quoteForTx }
+      const outcomePayload = { draft: swapDraft, quote: swapQuote }
       if (surface === 'popup') {
         await writePendingWalletOutcome({
           kind: 'swap',
@@ -330,43 +314,25 @@ export function SwapRouteViews({
       }
 
       const res = await sendToBackground<
-        {
-          accountId: string
-          quote: typeof quoteForTx.quotePayload
-          surface: Surface
-          outcomePayload?: Record<string, unknown>
-        },
-        {
-          prepared: {
-            estimatedFeeXlm?: string
-            feeLabel?: string
-          }
-          submit: { transactionHash?: string; hash?: string }
-        }
+        BackgroundRequestPayloadByType['EXECUTE_SWAP_CONFIRM'],
+        BackgroundResponseDataByType['EXECUTE_SWAP_CONFIRM']
       >({
         type: 'EXECUTE_SWAP_CONFIRM',
         payload: {
           accountId: activeAccount.id,
-          quote: quoteForTx.quotePayload,
+          quote: swapQuote.quotePayload,
+          shownNetworkFee: confirm.shownNetworkFee,
+          reviewed: confirm.reviewed != null,
           surface,
           outcomePayload,
         },
       })
-      if (!res.ok) throw new Error(friendlyError(res.error) || 'Swap failed.')
-
-      const prepared = res.data!.prepared
-      if (prepared.estimatedFeeXlm || prepared.feeLabel) {
-        setSwapQuote((prev) =>
-          prev
-            ? {
-                ...prev,
-                networkFeeLine: prepared.feeLabel
-                  ? prepared.feeLabel
-                  : `~ ${prepared.estimatedFeeXlm} Stellar`,
-              }
-            : prev
-        )
+      if (!res.ok && isReviewAgainCode(res.error?.code)) {
+        await clearPendingWalletOutcome()
+        confirm.reviewAgain(friendlyError(res.error))
+        return
       }
+      if (!res.ok) throw new Error(friendlyError(res.error) || 'Swap failed.')
 
       setSwapStep('success')
       await clearPendingWalletOutcome()
@@ -394,6 +360,7 @@ export function SwapRouteViews({
         })
       }
     } finally {
+      confirm.endSubmit()
       setSwapBusy(false)
     }
   }
@@ -475,6 +442,8 @@ export function SwapRouteViews({
             resolveSwapToken={resolveSwapToken}
             receiveAddress={activeAccount?.smartAccountAddress}
             busy={swapBusy}
+            confirmDisabled={confirm.confirmBlocked}
+            feeError={confirm.error ?? confirm.notice}
             onBackOrCancel={() => {
               if (swapBusy) return
               onSetRoute('swap')
