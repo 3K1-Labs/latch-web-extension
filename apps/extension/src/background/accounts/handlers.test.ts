@@ -15,7 +15,7 @@ const getBackendAccounts = vi.fn()
 vi.mock('../backend', () => ({
   clearLatchApiSession: (...a: unknown[]) => clearLatchApiSession(...a),
   createOrConnectPasskey: vi.fn(),
-  ensureFreighterSmartAccountDeployed: vi.fn(),
+  ensureDelegatedSmartAccountDeployed: vi.fn(),
   getBackendAccounts: (...a: unknown[]) => getBackendAccounts(...a),
   passkeyAuthenticationBegin: vi.fn(),
   passkeyAuthenticationFinish: (...a: unknown[]) => passkeyAuthenticationFinish(...a),

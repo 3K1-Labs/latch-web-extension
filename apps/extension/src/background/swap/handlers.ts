@@ -38,8 +38,8 @@ import {
 import { getOrCreateQuote, quoteCacheKey } from './quoteCache'
 
 function accountModeToSignerType(account: StoredAccount): SendSignerType {
-  // 'freighter' is the backend wire value for delegated G-signer builds (mnemonic accounts).
-  return account.mode === 'passkey' ? 'passkey' : 'freighter'
+  // Mnemonic accounts sign as a Delegated(gAddress) signer.
+  return account.mode === 'passkey' ? 'passkey' : 'delegated'
 }
 
 function passkeyKeyDataHex(account: StoredAccount): string | undefined {

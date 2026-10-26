@@ -19,7 +19,7 @@ import { BackendError } from '../api/client'
 import {
   clearLatchApiSession,
   createOrConnectPasskey,
-  ensureFreighterSmartAccountDeployed,
+  ensureDelegatedSmartAccountDeployed,
   getBackendAccounts,
   passkeyAuthenticationBegin,
   passkeyAuthenticationFinish,
@@ -304,7 +304,7 @@ export async function tryHandleAccountsMessage(
         req.mnemonic,
         req.bip39Passphrase
       )
-      const data = await ensureFreighterSmartAccountDeployed(gAddress)
+      const data = await ensureDelegatedSmartAccountDeployed(gAddress)
       const { account } = await createAccount({
         mode: 'mnemonic',
         smartAccountAddress: data.smartAccountAddress,

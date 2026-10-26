@@ -251,7 +251,7 @@ describe('background/backend', () => {
 
     await buildSendTx({
       smartAccountAddress: 'CADDR',
-      signerType: 'freighter',
+      signerType: 'delegated',
       recipient: 'GADDR',
       amount: '2.5',
       assetId: 'usdc',
@@ -261,7 +261,7 @@ describe('background/backend', () => {
     expect(urls[0]).toContain('/api/transaction/build-send')
     expect(bodies[0]).toMatchObject({
       smartAccountAddress: 'CADDR',
-      signerType: 'freighter',
+      signerType: 'delegated',
       recipient: 'GADDR',
       amount: '2.5',
       assetId: 'usdc',

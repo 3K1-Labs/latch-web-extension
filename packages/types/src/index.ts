@@ -183,10 +183,10 @@ export interface GetSmartAccountBalancesApiResponse {
 
 /**
  * Backend build/setup contract (`BuildSendTxRequest.signerType`, etc.).
- * `'freighter'` is the wire value for delegated G-signer builds and is what
+ * `'delegated'` is a Delegated(gAddress) signer, whichever wallet holds the key; it is what
  * mnemonic accounts send; do not rename without a coordinated backend change.
  */
-export type SendSignerType = 'passkey' | 'freighter'
+export type SendSignerType = 'passkey' | 'delegated'
 
 export interface BuildSendTxRequest {
   smartAccountAddress: string
@@ -235,7 +235,7 @@ export interface BuildSendTxResponse {
   recipient?: string
   amount?: string
   amountRaw?: string
-  /** Freighter / delegated path */
+  /** Delegated (G-address signer) path */
   smartAccountAuthEntryXdr?: string
   gAddressPreimageXdr?: string
   gAddressEntryTemplateXdr?: string
@@ -357,19 +357,19 @@ export interface GetBackendAccountsRequest {
   credentialId?: string
 }
 
-export interface CreateOrConnectFreighterRequest {
+export interface CreateOrConnectDelegatedRequest {
   gAddress: string
   /** Stellar network; omit → API defaults to testnet. */
   network?: Network
 }
 
-export interface CreateOrConnectFreighterResponse {
+export interface CreateOrConnectDelegatedResponse {
   smartAccountAddress: string
   alreadyDeployed: boolean
 }
 
-/** GET /api/smart-account/freighter?gAddress=… — shape may include backend aliases */
-export interface FreighterSmartAccountStatusResponse {
+/** GET /api/smart-account/delegated?gAddress=… — shape may include backend aliases */
+export interface DelegatedSmartAccountStatusResponse {
   deployed: boolean
   smartAccountAddress: string
 }

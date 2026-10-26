@@ -157,7 +157,7 @@ describe('resolveExternalSignContextSetup', () => {
       } as unknown as StoredAccount,
     })
 
-    expect(setup.body.signerType).toBe('freighter')
+    expect(setup.body.signerType).toBe('delegated')
     expect(setup.body.gAddress).toBe(gAddress)
     expect(setup.body.keyDataHex).toBeUndefined()
   })

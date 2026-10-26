@@ -64,7 +64,7 @@ export async function buildSetupSwapRequestFromQuote(
       req.credentialId = account.passkeyCredentialId.trim()
     }
   }
-  if (signerType === 'freighter') {
+  if (signerType === 'delegated') {
     if (!account.gAddress?.trim()) return null
     req.gAddress = account.gAddress
   }
@@ -79,7 +79,7 @@ export async function swapSetupPrerequisiteError(
   const passkeyErr = passkeySetupPrerequisiteError(account)
   if (passkeyErr) return passkeyErr
   const signerType = accountToSignerType(account.mode)
-  if (signerType === 'freighter' && !account.gAddress?.trim()) {
+  if (signerType === 'delegated' && !account.gAddress?.trim()) {
     return 'Missing G-address for this account. Re-import the wallet in Settings.'
   }
   const { network } = await fetchActiveNetwork()
@@ -97,7 +97,7 @@ export function swapBuildNeedsSignerReconfigure(
   const signerType = accountToSignerType(account.mode)
 
   if (
-    signerType === 'freighter' &&
+    signerType === 'delegated' &&
     (build.submitMethod === 'delegated' || build.submitMethod === 'bundler-delegated') &&
     isDelegatedSendBuild(build)
   ) {
