@@ -1,6 +1,8 @@
-import React, { useCallback, useEffect, useLayoutEffect, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import type {
+  BackgroundRequestPayloadByType,
+  BackgroundResponseDataByType,
   BuildSendTxRequest,
   BuildSendTxResponse,
   GetMarketPricesRequest,
@@ -13,8 +15,11 @@ import type {
 import { SendFlow } from '../screens/send/SendFlow'
 import { saveToAddressBook } from '../screens/send/useAddressBook'
 import { createMultisigSendProposalWithSetup } from '../lib/multisigProposal'
-import { NETWORK_FEE_CHANGED_CODE, maxSendAmountFromProbe } from '../lib/networkFee'
-import { enrichSendFailureDetail, buildSendRequestFromDraft } from '../lib/sendTx'
+import { REVIEW_OUT_OF_DATE_MESSAGE, fitMaxSendAmount, type MaxFeeProbe } from '../lib/networkFee'
+import { estimateSendWithSetup } from '../lib/sendEstimate'
+import type { ReviewedFee } from '../lib/reviewedBuild'
+import { classifySendResponse, gateReviewed } from '../lib/sendSubmitOutcome'
+import { buildSendRequestFromDraft, enrichSendFailureDetail } from '../lib/sendTx'
 import { friendlyError, logLatchError, sendToBackground } from '../lib/backgroundClient'
 import {
   clearPendingWalletOutcome,
@@ -29,8 +34,6 @@ import {
   type SendStep,
 } from '../types/send'
 
-/** Smallest SAC unit: builds a send only to learn its fee, never to submit. */
-const FEE_PROBE_AMOUNT = '0.0000001'
 import type { Route, Surface } from '../routing/routes'
 
 export function SendRouteViews({
@@ -76,8 +79,12 @@ export function SendRouteViews({
   const [sendProgressLabel, setSendProgressLabel] = useState<string | null>(null)
   const [sendError, setSendError] = useState<string | null>(null)
   const [sendTokenPriceUsd, setSendTokenPriceUsd] = useState<number | null>(null)
-  /** Fee the summary displayed; the background refuses to sign a build it doesn't cover. */
-  const [shownNetworkFee, setShownNetworkFee] = useState<NetworkFee | null>(null)
+  /** The build the summary is showing; Confirm signs exactly this while it is still valid. */
+  const [reviewed, setReviewed] = useState<ReviewedFee | null>(null)
+  /** When the in-flight estimate was requested: the reviewed build's age counts from here. */
+  const estimateStartedAtRef = useRef(0)
+  /** True while a Confirm is signing. */
+  const submitLockRef = useRef(false)
   const [feeEstimateNonce, setFeeEstimateNonce] = useState(0)
 
   function resetSendFlow() {
@@ -87,7 +94,7 @@ export function SendRouteViews({
     setSendError(null)
     setSendProgressLabel(null)
     setSendTokenPriceUsd(null)
-    setShownNetworkFee(null)
+    setReviewed(null)
   }
 
   const openSendFlow = useCallback(() => {
@@ -125,52 +132,101 @@ export function SendRouteViews({
     }
   }, [route, sendDraft.token?.code, loadMarketPriceForToken])
 
-  const fetchSendFeeEstimate = useCallback(async (): Promise<SendFeeEstimate> => {
-    if (!activeAccount || activeAccount.mode === 'multisig') return null
-    const buildBody = buildSendRequestFromDraft(
-      sendDraft,
-      activeAccount,
-      sendTokenPriceUsd,
-      activeNetwork
-    )
-    if (!buildBody) return null
+  /** One-time send-rule setup. Settles the pending outcome so a dead popup reopens on the summary. */
+  const runSendRulesSetup = useCallback(async () => {
+    if (!activeAccount) return { ok: false as const, message: 'No active account' }
+    const outcomePayload = { draft: sendDraft, sendTokenPriceUsd }
     try {
-      const buildRes = await sendToBackground<BuildSendTxRequest, BuildSendTxResponse>({
-        type: 'BUILD_SEND_TX',
-        payload: buildBody,
+      if (surface === 'popup') {
+        await writePendingWalletOutcome({
+          kind: 'send',
+          status: 'in_progress',
+          payload: outcomePayload,
+        })
+      }
+      const res = await sendToBackground<
+        BackgroundRequestPayloadByType['RUN_SEND_RULES_SETUP'],
+        BackgroundResponseDataByType['RUN_SEND_RULES_SETUP']
+      >({
+        type: 'RUN_SEND_RULES_SETUP',
+        payload: {
+          accountId: activeAccount.id,
+          draft: sendDraft,
+          network: activeNetwork,
+          surface,
+          outcomePayload,
+        },
       })
-      if (buildRes.ok && buildRes.data) return { ok: true, data: buildRes.data }
-      return { ok: false, error: buildRes.error ?? { message: 'Could not estimate the fee.' } }
+      if (res.ok && res.data) return { ok: true as const, result: res.data.result }
+      return { ok: false as const, message: friendlyError(res.error) || 'Wallet setup failed.' }
     } catch (e) {
-      logLatchError('send:fee-estimate', e)
-      return { ok: false, error: { message: e instanceof Error ? e.message : String(e) } }
+      logLatchError('send:setup-rules', e)
+      return { ok: false as const, message: e instanceof Error ? e.message : String(e) }
+    } finally {
+      if (surface === 'popup') await clearPendingWalletOutcome().catch(() => undefined)
     }
-  }, [activeAccount, sendDraft, sendTokenPriceUsd, activeNetwork])
+  }, [activeAccount, sendDraft, sendTokenPriceUsd, activeNetwork, surface])
 
-  const handleReviewedNetworkFee = useCallback((fee: NetworkFee | null) => {
-    setShownNetworkFee(fee)
-  }, [])
-
-  /** Balance less the max fee when that token pays the fee; unchanged when the probe fails. */
-  const resolveMaxSendAmount = useCallback(
-    async (token: SmartAccountBalanceRow): Promise<string | null> => {
-      if (!activeAccount || activeAccount.mode === 'multisig') return token.amount
-      const probeBody = buildSendRequestFromDraft(
-        { ...sendDraft, token, amount: FEE_PROBE_AMOUNT, inputMode: 'crypto' },
+  const fetchSendFeeEstimate = useCallback(
+    async (opts?: { onSettingUp?: () => void }): Promise<SendFeeEstimate> => {
+      if (!activeAccount || activeAccount.mode === 'multisig') return null
+      const buildBody = buildSendRequestFromDraft(
+        sendDraft,
         activeAccount,
         sendTokenPriceUsd,
         activeNetwork
       )
-      if (!probeBody) return null
-      try {
+      if (!buildBody) return null
+      const build = async (): Promise<NonNullable<SendFeeEstimate>> => {
+        estimateStartedAtRef.current = Date.now()
+        try {
+          const buildRes = await sendToBackground<BuildSendTxRequest, BuildSendTxResponse>({
+            type: 'BUILD_SEND_TX',
+            payload: buildBody,
+          })
+          if (buildRes.ok && buildRes.data) return { ok: true, data: buildRes.data }
+          return { ok: false, error: buildRes.error ?? { message: 'Could not estimate the fee.' } }
+        } catch (e) {
+          logLatchError('send:fee-estimate', e)
+          return { ok: false, error: { message: e instanceof Error ? e.message : String(e) } }
+        }
+      }
+      return estimateSendWithSetup({
+        build,
+        runSetup: runSendRulesSetup,
+        onSettingUp: opts?.onSettingUp,
+      })
+    },
+    [activeAccount, sendDraft, sendTokenPriceUsd, activeNetwork, runSendRulesSetup]
+  )
+
+  const handleReviewedBuild = useCallback((build: BuildSendTxResponse | null) => {
+    setReviewed(
+      build ? { networkFee: build.networkFee ?? null, builtAt: estimateStartedAtRef.current } : null
+    )
+  }, [])
+
+  /** Balance less the max fee of the real build at that amount; unchanged when probing fails. */
+  const resolveMaxSendAmount = useCallback(
+    async (token: SmartAccountBalanceRow): Promise<string | null> => {
+      if (!activeAccount || activeAccount.mode === 'multisig') return token.amount
+      const probeAt = async (amount: string): Promise<MaxFeeProbe> => {
+        const probeBody = buildSendRequestFromDraft(
+          { ...sendDraft, token, amount, inputMode: 'crypto' },
+          activeAccount,
+          sendTokenPriceUsd,
+          activeNetwork
+        )
+        if (!probeBody) return { ok: false }
         const res = await sendToBackground<BuildSendTxRequest, BuildSendTxResponse>({
           type: 'BUILD_SEND_TX',
           payload: probeBody,
         })
-        if (!res.ok || !res.data) {
-          return maxSendAmountFromProbe(token, { ok: false, code: res.error?.code })
-        }
-        return maxSendAmountFromProbe(token, { ok: true, networkFee: res.data.networkFee })
+        if (!res.ok || !res.data) return { ok: false, code: res.error?.code }
+        return { ok: true, networkFee: res.data.networkFee }
+      }
+      try {
+        return await fitMaxSendAmount(token, probeAt)
       } catch (e) {
         logLatchError('send:max-fee', e)
         return null
@@ -189,7 +245,12 @@ export function SendRouteViews({
         setSendTokenPriceUsd(payload.sendTokenPriceUsd as number | null)
       }
       setSendProgressLabel(null)
-      if (outcome.status === 'success') {
+      if (outcome.status === 'review_again') {
+        // Nothing was signed (fee changed or setup finished): back to the summary, which
+        // re-runs its estimate and shows the fee that will be signed.
+        setSendError(outcome.error ?? null)
+        setSendStep('summary')
+      } else if (outcome.status === 'success') {
         const result = (payload.result as SendResult | undefined) ?? {
           status: 'success' as const,
           submittedAt: new Date().toISOString(),
@@ -210,6 +271,9 @@ export function SendRouteViews({
   }, [onLoadPortfolio, onSetRoute])
 
   async function handleSubmitSend() {
+    // A double click must not start a second signing attempt before the first re-renders.
+    if (submitLockRef.current) return
+    submitLockRef.current = true
     setSendError(null)
     setSendProgressLabel('Building…')
     try {
@@ -236,6 +300,13 @@ export function SendRouteViews({
 
       if (!activeAccount) throw new Error('No active account')
 
+      if (gateReviewed(reviewed) === 'expired') {
+        setReviewed(null)
+        setSendError(REVIEW_OUT_OF_DATE_MESSAGE)
+        setFeeEstimateNonce((n) => n + 1)
+        return
+      }
+
       const outcomePayload = {
         draft: sendDraft,
         sendTokenPriceUsd,
@@ -255,6 +326,7 @@ export function SendRouteViews({
           sendTokenPriceUsd: number | null
           network: 'testnet' | 'mainnet'
           shownNetworkFee: NetworkFee | null
+          reviewed?: boolean
           surface: Surface
           outcomePayload?: Record<string, unknown>
         },
@@ -266,19 +338,21 @@ export function SendRouteViews({
           draft: sendDraft,
           sendTokenPriceUsd,
           network: activeNetwork,
-          shownNetworkFee,
+          shownNetworkFee: reviewed?.networkFee ?? null,
+          reviewed: reviewed != null,
           surface,
           outcomePayload,
         },
       })
-      if (!res.ok && res.error?.code === NETWORK_FEE_CHANGED_CODE) {
+      const outcome = classifySendResponse(res)
+      if (outcome === 'review_again') {
         // Nothing was signed: stay on the summary and show the fee that would be signed now.
         await clearPendingWalletOutcome()
         setSendError(friendlyError(res.error))
         setFeeEstimateNonce((n) => n + 1)
         return
       }
-      if (!res.ok) throw new Error(friendlyError(res.error) || 'Send failed.')
+      if (outcome === 'failed') throw new Error(friendlyError(res.error) || 'Send failed.')
 
       const result = res.data!
       setSendResult(result)
@@ -318,6 +392,7 @@ export function SendRouteViews({
         })
       }
     } finally {
+      submitLockRef.current = false
       setSendProgressLabel(null)
     }
   }
@@ -353,7 +428,7 @@ export function SendRouteViews({
         }}
         feeEstimateKey={feeEstimateNonce}
         onFetchFeeEstimate={fetchSendFeeEstimate}
-        onReviewedNetworkFee={handleReviewedNetworkFee}
+        onReviewedBuild={handleReviewedBuild}
         onResolveMaxAmount={resolveMaxSendAmount}
         onSubmitSend={() => void handleSubmitSend()}
         onContinueHome={() => {

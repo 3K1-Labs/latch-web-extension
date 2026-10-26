@@ -1,11 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react'
 
-import type { NetworkFee } from '@latch/types'
+import type { BuildSendTxResponse } from '@latch/types'
 
 import { friendlyError } from '../../lib/backgroundClient'
 import { formatNetworkFeeLine, isUserPaidFeeErrorCode } from '../../lib/networkFee'
 import { fiatToCrypto } from '../../lib/sendAmount'
-import type { SendDraft, SendFeeEstimate } from '../../types/send'
+import { SEND_SETUP_FAILED_CODE, type FetchSendFeeEstimate, type SendDraft } from '../../types/send'
 import { SendSummaryFacts } from './SendSummaryFacts'
 import { SendSummaryHeader } from './SendSummaryHeader'
 import { SendSummaryHero } from './SendSummaryHero'
@@ -23,7 +23,7 @@ export function SendSummaryScreen({
   onSend,
   feeEstimateKey = 0,
   onFetchFeeEstimate,
-  onReviewedNetworkFee,
+  onReviewedBuild,
 }: {
   surface: 'popup' | 'sidepanel'
   draft: SendDraft
@@ -35,9 +35,9 @@ export function SendSummaryScreen({
   onBack: () => void
   onSend: () => void
   feeEstimateKey?: number
-  onFetchFeeEstimate: () => Promise<SendFeeEstimate>
-  /** Writes the fee the user is reviewing. Ignored when this estimate was superseded. */
-  onReviewedNetworkFee: (fee: NetworkFee | null) => void
+  onFetchFeeEstimate: FetchSendFeeEstimate
+  /** The build the user is reviewing (the one Confirm signs). Null while a new estimate runs. */
+  onReviewedBuild: (build: BuildSendTxResponse | null) => void
 }) {
   const token = draft.token!
   const isSending = sendProgressLabel != null
@@ -51,22 +51,33 @@ export function SendSummaryScreen({
   const [feeEstimating, setFeeEstimating] = useState(true)
   /** User-paid fee error from the estimate: the send would be refused, so block it here. */
   const [feeError, setFeeError] = useState<string | null>(null)
+  /** One-time wallet setup failed (e.g. the passkey prompt was dismissed): offer a retry. */
+  const [setupFailed, setSetupFailed] = useState(false)
+  const [retryKey, setRetryKey] = useState(0)
 
   useEffect(() => {
     let cancelled = false
     setFeeEstimating(true)
     setFeeError(null)
+    setSetupFailed(false)
     setFeeDisplay('Fast | —')
-    onReviewedNetworkFee(null)
-    void onFetchFeeEstimate().then((res) => {
+    onReviewedBuild(null)
+    void onFetchFeeEstimate({
+      onSettingUp: () => {
+        if (!cancelled) setFeeDisplay('Setting up your wallet…')
+      },
+    }).then((res) => {
       if (cancelled) return
       setFeeEstimating(false)
       if (!res) return
       if (!res.ok) {
-        if (isUserPaidFeeErrorCode(res.error.code)) setFeeError(friendlyError(res.error))
+        if (res.error.code === SEND_SETUP_FAILED_CODE) setSetupFailed(true)
+        if (isUserPaidFeeErrorCode(res.error.code) || res.error.code === SEND_SETUP_FAILED_CODE) {
+          setFeeError(friendlyError(res.error))
+        }
         return
       }
-      onReviewedNetworkFee(res.data.networkFee ?? null)
+      onReviewedBuild(res.data)
       const build = res.data
       const maxFee = formatNetworkFeeLine(build.networkFee)
       if (maxFee) {
@@ -81,7 +92,7 @@ export function SendSummaryScreen({
     return () => {
       cancelled = true
     }
-  }, [onFetchFeeEstimate, onReviewedNetworkFee, feeEstimateKey])
+  }, [onFetchFeeEstimate, onReviewedBuild, feeEstimateKey, retryKey])
 
   const errorMessage = sendError ?? feeError
 
@@ -108,9 +119,9 @@ export function SendSummaryScreen({
 
         <SendSummarySubmitButton
           loading={isSending}
-          disabled={feeEstimating || feeError != null}
-          onSend={onSend}
-          label={submitLabel}
+          disabled={feeEstimating || (feeError != null && !setupFailed)}
+          onSend={setupFailed ? () => setRetryKey((n) => n + 1) : onSend}
+          label={setupFailed ? 'Try again' : submitLabel}
         />
       </div>
 

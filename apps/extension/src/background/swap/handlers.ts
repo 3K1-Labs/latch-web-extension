@@ -25,6 +25,7 @@ import {
 
 import { BackendError, buildSwapTx, prepareSign, setupSwapRules } from '../backend'
 import type { OkFn } from '../messageResponse'
+import { reviewedSwapBody, saveReviewedBuild } from '../confirm/reviewedBuildStore'
 import { withCancellableWaiter } from '../requestWaiter'
 import { getActiveNetwork, networkPassphraseFor, sorobanRpcUrlFor } from '../network/config'
 import { getAccounts } from '../storage'
@@ -270,7 +271,10 @@ export async function tryHandleSwapMessage(
 
     case 'PREPARE_SWAP_TX': {
       const req = message.payload as PrepareSwapTxRequest
+      const startedAt = Date.now()
       const data = await runPrepareSwapTx(req)
+      // Confirm signs this prepare, held here, only if it is made from the same quote.
+      void saveReviewedBuild('swap', reviewedSwapBody(req.accountId, req.quote), data, startedAt)
       sendResponse(ok(data))
       return true
     }

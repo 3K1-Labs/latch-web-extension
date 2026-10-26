@@ -691,6 +691,16 @@ export type DappSignTransactionResponse =
   | { response: SignTransactionResponse }
   | DappRequestPendingResponse
 
+/** The send draft as it crosses the message boundary. */
+export interface SendDraftPayload {
+  token: SmartAccountBalanceRow | null
+  recipientAddress: string
+  recipientName?: string
+  amount: string
+  inputMode: 'crypto' | 'fiat'
+  memo?: string
+}
+
 export interface SerializableError {
   message: string
   code?: string
@@ -879,6 +889,8 @@ export type MessageType =
   | 'SIGN_PASSKEY_BUILT_TX'
   | 'EXECUTE_SWAP_CONFIRM'
   | 'EXECUTE_SEND_SUBMIT'
+  | 'RUN_SEND_RULES_SETUP'
+  | 'RUN_SWAP_RULES_SETUP'
   | 'EXECUTE_DAPP_EXTERNAL_SIGN'
   | 'EXECUTE_MULTISIG_PASSKEY_APPROVE'
   | 'RECORD_KNOWN_SAC_PROBE'
@@ -1050,25 +1062,37 @@ export type BackgroundRequestPayloadByType = {
   EXECUTE_SWAP_CONFIRM: {
     accountId: string
     quote: import('./swap').SwapQuotePayload
-    /** Fee shown on confirm. Signing is refused when the fresh build is not covered by it. */
+    /** Fee shown on confirm. */
     shownNetworkFee?: NetworkFee | null
+    /** The user reviewed a prepare for this quote; the background signs the one it holds. */
+    reviewed?: boolean
     surface: 'popup' | 'sidepanel'
     outcomePayload?: Record<string, unknown>
   }
   EXECUTE_SEND_SUBMIT: {
     accountId: string
-    draft: {
-      token: SmartAccountBalanceRow | null
-      recipientAddress: string
-      recipientName?: string
-      amount: string
-      inputMode: 'crypto' | 'fiat'
-      memo?: string
-    }
+    draft: SendDraftPayload
     sendTokenPriceUsd: number | null
     network: Network
-    /** Fee shown on the summary. Signing is refused when the fresh build is not covered by it. */
+    /** Fee shown on the summary. */
     shownNetworkFee?: NetworkFee | null
+    /** The user reviewed a build for this draft; the background signs the one it holds. */
+    reviewed?: boolean
+    surface: 'popup' | 'sidepanel'
+    outcomePayload?: Record<string, unknown>
+  }
+  /** One-time send-rule setup, run before Confirm enables. Settles the pending outcome. */
+  RUN_SEND_RULES_SETUP: {
+    accountId: string
+    draft: SendDraftPayload
+    network: Network
+    surface: 'popup' | 'sidepanel'
+    outcomePayload?: Record<string, unknown>
+  }
+  /** One-time swap-rule setup, run before Confirm enables. Settles the pending outcome. */
+  RUN_SWAP_RULES_SETUP: {
+    accountId: string
+    quote: import('./swap').SwapQuotePayload
     surface: 'popup' | 'sidepanel'
     outcomePayload?: Record<string, unknown>
   }
@@ -1257,6 +1281,8 @@ export type BackgroundResponseDataByType = {
     hash?: string
     submittedAt: string
   }
+  RUN_SEND_RULES_SETUP: { result: 'configured' | 'already_configured' }
+  RUN_SWAP_RULES_SETUP: { result: 'configured' | 'already_configured' }
   EXECUTE_DAPP_EXTERNAL_SIGN: {
     signedTxXdr?: string
     signedAuthEntry?: string

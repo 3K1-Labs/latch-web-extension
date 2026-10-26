@@ -1,8 +1,8 @@
 import React from 'react'
 
-import type { NetworkFee, SmartAccountBalanceRow } from '@latch/types'
+import type { BuildSendTxResponse, SmartAccountBalanceRow } from '@latch/types'
 
-import type { SendDraft, SendFeeEstimate, SendResult, SendStep } from '../../types/send'
+import type { FetchSendFeeEstimate, SendDraft, SendResult, SendStep } from '../../types/send'
 import { SendEnterAmountScreen } from './SendEnterAmountScreen'
 import { SendFailureScreen } from './SendFailureScreen'
 import { SendReceiptScreen } from './SendReceiptScreen'
@@ -30,7 +30,7 @@ export function SendFlow({
   onBackFromSend,
   feeEstimateKey = 0,
   onFetchFeeEstimate,
-  onReviewedNetworkFee,
+  onReviewedBuild,
   onResolveMaxAmount,
   onSubmitSend,
   onContinueHome,
@@ -54,9 +54,9 @@ export function SendFlow({
   onBackFromSend: () => void
   /** Bump to make the summary fetch a fresh fee estimate. */
   feeEstimateKey?: number
-  onFetchFeeEstimate: () => Promise<SendFeeEstimate>
+  onFetchFeeEstimate: FetchSendFeeEstimate
   /** Called only for the summary estimate that is still the live one. */
-  onReviewedNetworkFee: (fee: NetworkFee | null) => void
+  onReviewedBuild: (build: BuildSendTxResponse | null) => void
   onResolveMaxAmount: (token: SmartAccountBalanceRow) => Promise<string | null>
   onSubmitSend: () => void
   onContinueHome: () => void
@@ -124,7 +124,7 @@ export function SendFlow({
         onSend={onSubmitSend}
         feeEstimateKey={feeEstimateKey}
         onFetchFeeEstimate={onFetchFeeEstimate}
-        onReviewedNetworkFee={onReviewedNetworkFee}
+        onReviewedBuild={onReviewedBuild}
       />
     )
   }

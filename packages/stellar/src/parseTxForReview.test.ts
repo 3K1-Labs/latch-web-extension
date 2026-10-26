@@ -433,4 +433,74 @@ describe('assessExternalSignReview', () => {
     expect(review.confirmBlocked).toBe(false)
     expect(review.warnings?.[0]).toContain('not XLM or USDC')
   })
+
+  it("shows the prepared fee, not the dApp's own forward() fee, and warns when they differ", () => {
+    const unsigned = forwardXdr({
+      forwarder: FEE_FORWARDER,
+      feeToken: nativeId,
+      target: nativeId,
+      user: smart,
+      maxFeeRaw: 10_000n,
+    })
+    const prepared = forwardXdr({
+      forwarder: FEE_FORWARDER,
+      feeToken: nativeId,
+      target: nativeId,
+      user: smart,
+      maxFeeRaw: 200_000n,
+    })
+    const review = assess(unsigned, prepared)
+    expect(review.confirmBlocked).toBe(false)
+    const fees = review.operations.filter((op) => op.type === 'network_fee')
+    expect(fees).toHaveLength(1)
+    expect(fees[0]?.summary).toBe('Network fee up to 0.02 XLM')
+    expect(review.warnings?.some((w) => w.includes('network fee differently'))).toBe(true)
+  })
+
+  it('warns when the fee cap is the same number but in a different token', () => {
+    const unsigned = forwardXdr({
+      forwarder: FEE_FORWARDER,
+      feeToken: usdcId,
+      target: nativeId,
+      user: smart,
+    })
+    const prepared = forwardXdr({
+      forwarder: FEE_FORWARDER,
+      feeToken: nativeId,
+      target: nativeId,
+      user: smart,
+    })
+    const review = assess(unsigned, prepared)
+    expect(review.confirmBlocked).toBe(false)
+    expect(review.warnings?.some((w) => w.includes('network fee differently'))).toBe(true)
+  })
+
+  it('warns when the prepared transaction carries no fee the dApp had requested', () => {
+    const unsigned = forwardXdr({
+      forwarder: FEE_FORWARDER,
+      feeToken: nativeId,
+      target: nativeId,
+      user: smart,
+    })
+    const prepared = sacTransferXdr({
+      sacContractId: nativeId,
+      toCAddress: TO_C,
+      amountRaw: 25_000_000n,
+    })
+    const review = assess(unsigned, prepared)
+    expect(review.operations.some((op) => op.type === 'network_fee')).toBe(false)
+    expect(review.warnings?.some((w) => w.includes('removed the network fee'))).toBe(true)
+  })
+
+  it('does not warn when the dApp forward() fee matches the prepared fee', () => {
+    const forwarded = forwardXdr({
+      forwarder: FEE_FORWARDER,
+      feeToken: nativeId,
+      target: nativeId,
+      user: smart,
+    })
+    const review = assess(forwarded, forwarded)
+    expect(review.operations.filter((op) => op.type === 'network_fee')).toHaveLength(1)
+    expect(review.warnings).toBeUndefined()
+  })
 })

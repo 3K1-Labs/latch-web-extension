@@ -7,6 +7,15 @@ describe('friendlyError', () => {
     expect(friendlyError({ code: 'cancelled', message: 'aborted' })).toBe('')
   })
 
+  it('words a changed fee and a stale review differently', () => {
+    expect(friendlyError({ code: 'network_fee_changed', message: 'x' })).toContain(
+      'network fee changed'
+    )
+    expect(friendlyError({ code: 'review_again', message: 'This review is out of date.' })).toBe(
+      'This review is out of date.'
+    )
+  })
+
   it('maps timeout to user-safe copy', () => {
     expect(friendlyError({ code: 'timeout', message: 'timed out' })).toBe(
       'Request timed out. Please try again.'

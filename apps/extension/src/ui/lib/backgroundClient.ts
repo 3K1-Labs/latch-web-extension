@@ -8,6 +8,7 @@ import type {
 import {
   NETWORK_FEE_CHANGED_CODE,
   NETWORK_FEE_CHANGED_MESSAGE,
+  REVIEW_AGAIN_CODE,
   userPaidFeeErrorMessage,
 } from './networkFee'
 
@@ -65,6 +66,8 @@ export function friendlyError(e?: SerializableError): string {
   const feeMessage = userPaidFeeErrorMessage(e.code)
   if (feeMessage) return feeMessage
   if (e.code === NETWORK_FEE_CHANGED_CODE) return NETWORK_FEE_CHANGED_MESSAGE
+  // The background words each reason (out of date, setup ran) itself.
+  if (e.code === REVIEW_AGAIN_CODE && e.message) return e.message
   if (e.code === 'fund_unsupported_mode') {
     return 'Fund via on-ramp is not available for this account type yet.'
   }

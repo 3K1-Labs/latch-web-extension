@@ -378,9 +378,28 @@ export function assessExternalSignReview(
     )
   }
 
-  // prepare-sign wraps a dApp's plain call in forward(); the fee it adds must still be shown.
-  if (!operations.some((op) => op.type === 'network_fee')) {
-    operations = [...operations, ...prepared.operations.filter((op) => op.type === 'network_fee')]
+  // The fee that gets signed is the prepared transaction's, never the dApp's own forward() fee:
+  // prepare-sign rewraps the call, so show the prepared rows and flag a different cap.
+  const dappFees = operations.filter((op) => op.type === 'network_fee')
+  const preparedFees = prepared.operations.filter((op) => op.type === 'network_fee')
+  operations = [...operations.filter((op) => op.type !== 'network_fee'), ...preparedFees]
+  // Token and cap together: the same number in another token is a different fee.
+  const feeCapsOf = (ops: PreparedSignOperation[]): string =>
+    ops
+      .map((op) => {
+        const d = (op.details ?? {}) as Record<string, unknown>
+        return `${String(d.feeToken)}:${String(d.maxFeeAmount)}`
+      })
+      .sort()
+      .join(',')
+  if (dappFees.length > 0) {
+    const warning =
+      preparedFees.length === 0
+        ? 'Latch removed the network fee the dApp requested; no network fee is shown for the transaction you sign.'
+        : feeCapsOf(dappFees) !== feeCapsOf(preparedFees)
+          ? `Latch set the network fee differently from the dApp's request (${preparedFees[0]?.summary}).`
+          : null
+    if (warning && !warnings.includes(warning)) warnings = [...warnings, warning]
   }
   for (const w of prepared.warnings) if (!warnings.includes(w)) warnings = [...warnings, w]
 

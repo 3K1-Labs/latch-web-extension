@@ -1,18 +1,23 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { friendlyError } from './backgroundClient'
 import type { NetworkFee } from '@latch/types'
 
 import {
+  FEE_PROBE_AMOUNT,
   NETWORK_FEE_CHANGED_CODE,
   NETWORK_FEE_CHANGED_MESSAGE,
+  REVIEW_AGAIN_CODE,
+  isReviewAgainCode,
   USER_PAID_FEE_ERROR_CODES,
+  fitMaxSendAmount,
   formatNetworkFeeLine,
   formatPreparedNetworkFeeLine,
   isUserPaidFeeErrorCode,
   maxSendAmountAfterFee,
   maxSendAmountFromProbe,
   networkFeeChanged,
+  networkFeeEquals,
   userPaidFeeErrorMessage,
 } from './networkFee'
 import { isBuildSendMissingSetupError, isPrepareSignMissingSetupError } from './sendTx'
@@ -130,8 +135,18 @@ describe('maxSendAmountFromProbe', () => {
     )
   })
 
-  it('returns 0 when the probe is a user-paid fee error', () => {
+  it('returns 0 when the balance cannot cover the fee', () => {
     expect(maxSendAmountFromProbe(xlm, { ok: false, code: 'insufficient_fee_balance' })).toBe('0')
+  })
+
+  it('returns null for transient user-paid fee errors so the typed amount stays', () => {
+    for (const code of [
+      'sponsorship_retry',
+      'too_many_failed_transactions',
+      'sponsorship_limit_reached',
+    ]) {
+      expect(maxSendAmountFromProbe(xlm, { ok: false, code })).toBeNull()
+    }
   })
 
   it('returns null for other probe failures so the typed amount stays', () => {
@@ -224,5 +239,80 @@ describe('user-paid fee errors', () => {
         message: 'failed to build transaction',
       })
     ).toBe(true)
+  })
+})
+
+describe('fitMaxSendAmount', () => {
+  const xlm = { sacContractId: XLM_SAC, amount: '10', decimals: 7 }
+  const ok = (maxAmountRaw: string) => ({
+    ok: true as const,
+    networkFee: fee(XLM_SAC, maxAmountRaw),
+  })
+
+  it('keeps the first amount when the real build prices the same fee', async () => {
+    const probeAt = vi.fn().mockResolvedValue(ok('140000'))
+    expect(await fitMaxSendAmount(xlm, probeAt)).toBe('9.986')
+    expect(probeAt.mock.calls.map((c) => c[0])).toEqual([FEE_PROBE_AMOUNT, '9.986'])
+  })
+
+  it('shrinks the amount when the real build prices a higher fee, and verifies it', async () => {
+    const probeAt = vi
+      .fn()
+      .mockResolvedValueOnce(ok('140000'))
+      .mockResolvedValueOnce(ok('200000'))
+      .mockResolvedValueOnce(ok('200000'))
+    expect(await fitMaxSendAmount(xlm, probeAt)).toBe('9.98')
+    expect(probeAt).toHaveBeenCalledTimes(3)
+  })
+
+  it('leaves double-fee headroom when the real build reports insufficient fee balance', async () => {
+    const probeAt = vi
+      .fn()
+      .mockResolvedValueOnce(ok('140000'))
+      .mockResolvedValueOnce({ ok: false, code: 'insufficient_fee_balance' })
+      .mockResolvedValueOnce(ok('200000'))
+    expect(await fitMaxSendAmount(xlm, probeAt)).toBe('9.972')
+  })
+
+  it('does not reduce a token that does not pay its own fee', async () => {
+    const usdc = { sacContractId: 'CUSDC', amount: '5', decimals: 7 }
+    const probeAt = vi.fn().mockResolvedValue(ok('140000'))
+    expect(await fitMaxSendAmount(usdc, probeAt)).toBe('5')
+    expect(probeAt).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns 0 only for insufficient balance and null for transient failures', async () => {
+    expect(
+      await fitMaxSendAmount(xlm, async () => ({ ok: false, code: 'insufficient_fee_balance' }))
+    ).toBe('0')
+    expect(
+      await fitMaxSendAmount(xlm, async () => ({ ok: false, code: 'sponsorship_retry' }))
+    ).toBeNull()
+  })
+})
+
+describe('networkFeeEquals', () => {
+  it('treats two missing fees as equal', () => {
+    expect(networkFeeEquals(null, undefined)).toBe(true)
+  })
+
+  it('needs the same token and cap', () => {
+    expect(networkFeeEquals(fee(XLM_SAC, '140000'), fee(XLM_SAC, '140000'))).toBe(true)
+    expect(networkFeeEquals(fee(XLM_SAC, '140000'), fee(XLM_SAC, '140001'))).toBe(false)
+    expect(networkFeeEquals(fee(XLM_SAC, '140000'), fee('CUSDC', '140000'))).toBe(false)
+  })
+
+  it('is unequal when only one side charges a fee', () => {
+    expect(networkFeeEquals(null, fee(XLM_SAC, '1'))).toBe(false)
+    expect(networkFeeEquals(fee(XLM_SAC, '1'), undefined)).toBe(false)
+  })
+})
+
+describe('isReviewAgainCode', () => {
+  it('covers a changed fee and every other "nothing was signed" refusal', () => {
+    expect(isReviewAgainCode(NETWORK_FEE_CHANGED_CODE)).toBe(true)
+    expect(isReviewAgainCode(REVIEW_AGAIN_CODE)).toBe(true)
+    expect(isReviewAgainCode('sponsorship_retry')).toBe(false)
+    expect(isReviewAgainCode(undefined)).toBe(false)
   })
 })
