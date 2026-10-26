@@ -62,7 +62,7 @@ describe('estimateSendWithSetup', () => {
   })
 
   it('does not set up for errors that are not about missing rules', async () => {
-    const other = { ok: false as const, error: { message: 'down', code: 'sponsorship_retry' } }
+    const other = { ok: false as const, error: { message: 'down', code: 'service_unavailable' } }
     const build = vi.fn().mockResolvedValue(other)
     const runSetup = vi.fn()
 

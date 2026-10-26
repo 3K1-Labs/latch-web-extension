@@ -44,13 +44,14 @@ export function formatPreparedNetworkFeeLine(
   return xlm ? `~ ${xlm} Stellar` : null
 }
 
-/** Must match latch-api `internal/webappx/errors.go` (user-paid fee codes). */
+/** Must match latch-api `master` `internal/webappx/errors.go` (gasless and user-paid fee codes). */
 export const USER_PAID_FEE_ERROR_CODES = [
   'insufficient_fee_balance',
   'fee_quote_stale',
+  'fee_rule_not_found',
   'too_many_failed_transactions',
   'sponsorship_limit_reached',
-  'sponsorship_retry',
+  'service_unavailable',
 ] as const
 
 export type UserPaidFeeErrorCode = (typeof USER_PAID_FEE_ERROR_CODES)[number]
@@ -60,8 +61,12 @@ const USER_PAID_FEE_ERRORS: Record<UserPaidFeeErrorCode, string> = {
   fee_quote_stale: 'The network fee changed. Review the transaction and sign again.',
   too_many_failed_transactions:
     'Too many recent transactions from this wallet failed. Try again later.',
+  fee_rule_not_found:
+    "This signer can't authorize the network fee for this wallet. The wallet needs a setup step.",
   sponsorship_limit_reached: 'Free transaction limit reached. Try again later.',
-  sponsorship_retry: "The transaction didn't go through and nothing was charged. Try again.",
+  // latch-api sends this only from its gasless error handler: the transaction service is down or
+  // hasn't confirmed the submission yet, and retrying is safe.
+  service_unavailable: 'The transaction service is temporarily unavailable. Please retry.',
 }
 
 /** User-facing copy for latch-api user-paid fee error codes, or null for other codes. */
@@ -122,7 +127,7 @@ export function maxSendAmountAfterFee(
 
 /**
  * Max amount from a fee probe. Only `insufficient_fee_balance` means the fee cannot be covered, so
- * Max is 0. Any other failure (including transient user-paid fee codes such as `sponsorship_retry`)
+ * Max is 0. Any other failure (including transient codes such as `service_unavailable`)
  * leaves the typed amount unchanged (`null`).
  */
 export function maxSendAmountFromProbe(

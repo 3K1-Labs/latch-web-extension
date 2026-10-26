@@ -141,9 +141,10 @@ describe('maxSendAmountFromProbe', () => {
 
   it('returns null for transient user-paid fee errors so the typed amount stays', () => {
     for (const code of [
-      'sponsorship_retry',
+      'service_unavailable',
       'too_many_failed_transactions',
       'sponsorship_limit_reached',
+      'fee_rule_not_found',
     ]) {
       expect(maxSendAmountFromProbe(xlm, { ok: false, code })).toBeNull()
     }
@@ -179,13 +180,15 @@ describe('networkFeeChanged', () => {
 })
 
 describe('user-paid fee errors', () => {
-  // latch-api internal/webappx/errors.go (feat/gasless-user-pays). Update both together.
+  // latch-api master internal/webappx/errors.go: the codes its gasless and user-paid fee paths
+  // send (internal/handler/webapp/gasless_errors.go). Update both together.
   const LATCH_API_FEE_CODES = [
     'insufficient_fee_balance',
     'fee_quote_stale',
+    'fee_rule_not_found',
     'too_many_failed_transactions',
     'sponsorship_limit_reached',
-    'sponsorship_retry',
+    'service_unavailable',
   ]
 
   it('handles exactly the codes latch-api sends', () => {
@@ -202,19 +205,16 @@ describe('user-paid fee errors', () => {
     expect(friendlyError({ code: 'insufficient_fee_balance', message: 'x' })).toBe(
       'Add XLM or USDC to pay the network fee.'
     )
-    expect(friendlyError({ code: 'sponsorship_retry', message: 'x' })).toBe(
-      "The transaction didn't go through and nothing was charged. Try again."
+    expect(friendlyError({ code: 'service_unavailable', message: 'x' })).toBe(
+      'The transaction service is temporarily unavailable. Please retry.'
     )
   })
 
-  it('does not treat generic or unsent codes as fee errors', () => {
-    for (const code of ['service_unavailable', 'fee_rule_not_found', 'toString', undefined]) {
+  it('does not treat unsent codes as fee errors', () => {
+    for (const code of ['sponsorship_retry', 'toString', undefined]) {
       expect(isUserPaidFeeErrorCode(code)).toBe(false)
       expect(userPaidFeeErrorMessage(code)).toBeNull()
     }
-    expect(friendlyError({ code: 'service_unavailable', message: 'Quote provider down' })).toBe(
-      'Quote provider down'
-    )
   })
 
   it('never treats fee errors as missing send or swap rules', () => {
@@ -231,14 +231,15 @@ describe('user-paid fee errors', () => {
     )
   })
 
-  it('leaves service_unavailable to the normal setup classifiers', () => {
+  it('never runs send-rule setup for a missing fee rule', () => {
+    // 400 fee_rule_not_found needs the Default rule; setup-send-rules cannot fix it.
     expect(
       isBuildSendMissingSetupError({
         status: 400,
-        code: 'service_unavailable',
-        message: 'failed to build transaction',
+        code: 'fee_rule_not_found',
+        message: "this signer can't authorize the network fee payment for this wallet",
       })
-    ).toBe(true)
+    ).toBe(false)
   })
 })
 
@@ -286,7 +287,7 @@ describe('fitMaxSendAmount', () => {
       await fitMaxSendAmount(xlm, async () => ({ ok: false, code: 'insufficient_fee_balance' }))
     ).toBe('0')
     expect(
-      await fitMaxSendAmount(xlm, async () => ({ ok: false, code: 'sponsorship_retry' }))
+      await fitMaxSendAmount(xlm, async () => ({ ok: false, code: 'service_unavailable' }))
     ).toBeNull()
   })
 })
@@ -312,7 +313,7 @@ describe('isReviewAgainCode', () => {
   it('covers a changed fee and every other "nothing was signed" refusal', () => {
     expect(isReviewAgainCode(NETWORK_FEE_CHANGED_CODE)).toBe(true)
     expect(isReviewAgainCode(REVIEW_AGAIN_CODE)).toBe(true)
-    expect(isReviewAgainCode('sponsorship_retry')).toBe(false)
+    expect(isReviewAgainCode('service_unavailable')).toBe(false)
     expect(isReviewAgainCode(undefined)).toBe(false)
   })
 })
