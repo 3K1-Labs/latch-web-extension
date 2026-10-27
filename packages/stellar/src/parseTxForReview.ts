@@ -6,7 +6,6 @@
 import {
   Address,
   Asset,
-  FeeBumpTransaction,
   Networks,
   Transaction,
   TransactionBuilder,
@@ -14,8 +13,19 @@ import {
   xdr,
 } from '@stellar/stellar-sdk'
 
-import type { ExternalSignLocalReview, Network, PreparedSignOperation } from '@latch/types'
+import type {
+  ExternalSignAuthTreeEntry,
+  ExternalSignLocalReview,
+  Network,
+  PreparedSignOperation,
+} from '@latch/types'
 
+import {
+  authTreeForEntries,
+  findSelfAccountCalls,
+  unwrapTransaction,
+  type SelfCallFinding,
+} from './authTree'
 import { formatSacRawToHuman, STELLAR_SAC_DISPLAY_DECIMALS } from './sacBalance'
 import { buildSacAssetInfoMap, stellarAddressEquals } from './smartAccountTransactions'
 import {
@@ -45,13 +55,6 @@ function truncateMiddle(addr: string, left = 6, right = 4): string {
 
 function networkFromPassphrase(networkPassphrase: string): StellarNetwork {
   return networkPassphrase === Networks.PUBLIC ? 'mainnet' : 'testnet'
-}
-
-function unwrapTransaction(envelope: Transaction | FeeBumpTransaction): Transaction {
-  if (envelope instanceof FeeBumpTransaction) {
-    return envelope.innerTransaction
-  }
-  return envelope
 }
 
 function tryAddressFromScVal(val: xdr.ScVal): string | null {
@@ -303,6 +306,17 @@ export type AssessExternalSignReviewParams = {
   preparedSmartAccount: string
   activeSmartAccount: string
   feeForwarderId?: string
+  /** Every auth entry prepare-sign returned (they are what gets signed). */
+  preparedAuthEntriesXdr?: string[]
+}
+
+function selfAdminCallReason(findings: SelfCallFinding[]): string {
+  const readable = findings.filter((f) => f.node.kind !== 'unknown')
+  if (readable.length === 0) {
+    return 'Latch could not read everything this request asks your wallet to authorize, so it cannot be signed.'
+  }
+  const fn = readable.find((f) => f.node.functionName)?.node.functionName
+  return `This request tries to change your wallet's own settings (signers, rules, or code). Latch only allows that from inside the wallet.${fn ? ` (${fn})` : ''}`
 }
 
 /**
@@ -318,6 +332,7 @@ export function assessExternalSignReview(
   let forwardUsers: string[] = []
   let warnings: string[] = []
   let unsignedParseFailed = false
+  let authTree: ExternalSignAuthTreeEntry[] | undefined
 
   try {
     const parsed = parseTxForReview(params.unsignedTxXdr, params.networkPassphrase, parseOpts)
@@ -339,6 +354,7 @@ export function assessExternalSignReview(
     confirmBlockedReason: reason,
     code,
     ...(warnings.length > 0 ? { warnings } : {}),
+    ...(authTree ? { authTree } : {}),
   })
 
   if (
@@ -376,6 +392,30 @@ export function assessExternalSignReview(
       'unparsable_xdr',
       'Could not decode the prepared transaction for consistency checks.'
     )
+  }
+
+  const preparedEntries = params.preparedAuthEntriesXdr ?? []
+  if (preparedEntries.length > 0) {
+    authTree = authTreeForEntries(params.activeSmartAccount, preparedEntries)
+  }
+  // Every node of every tree, any function name: the account never needs to call itself on a dApp's behalf.
+  const selfCalls = [
+    ...findSelfAccountCalls({
+      accountId: params.activeSmartAccount,
+      txXdr: params.unsignedTxXdr,
+      txSource: 'unsigned',
+      networkPassphrase: params.networkPassphrase,
+    }),
+    ...findSelfAccountCalls({
+      accountId: params.activeSmartAccount,
+      txXdr: params.preparedTxXdr,
+      txSource: 'prepared_tx',
+      networkPassphrase: params.networkPassphrase,
+      entriesXdr: preparedEntries,
+    }),
+  ]
+  if (selfCalls.length > 0) {
+    return blocked('self_admin_call', selfAdminCallReason(selfCalls))
   }
 
   // The fee that gets signed is the prepared transaction's, never the dApp's own forward() fee:
@@ -424,5 +464,6 @@ export function assessExternalSignReview(
     confirmBlocked: false,
     confirmBlockedReason: null,
     ...(warnings.length > 0 ? { warnings } : {}),
+    ...(authTree ? { authTree } : {}),
   }
 }

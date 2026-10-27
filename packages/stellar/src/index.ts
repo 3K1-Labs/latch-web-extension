@@ -17,6 +17,8 @@ export {
 
 export { buildClassicNativePaymentTx } from './classicXlmPayment'
 export { buildUnsignedSacTransferTx } from './sacTransfer'
+export { authTreeForEntries, flattenAuthInvocation, findSelfAccountCalls } from './authTree'
+export type { AuthTreeNode, SelfCallFinding } from './authTree'
 export { assessExternalSignReview, parseTxForReview } from './parseTxForReview'
 export type {
   AssessExternalSignReviewParams,

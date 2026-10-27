@@ -10,6 +10,8 @@ import {
 } from '@stellar/stellar-sdk'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { OTHER_CONTRACT, authEntryXdr } from '../../test/authEntry'
+
 const prepareSign = vi.fn()
 const setupSendRules = vi.fn()
 const setupSwapRules = vi.fn()
@@ -100,7 +102,7 @@ function unknownInvokeXdr(): string {
 function preparedFor(txXdr: string) {
   return {
     txXdr,
-    authEntryXdr: 'auth',
+    authEntryXdr: authEntryXdr(SMART, { contractId: OTHER_CONTRACT, fn: 'swap' }),
     authDigestHex: 'deadbeef',
     contextRuleId: 1,
     validUntilLedger: 100,
