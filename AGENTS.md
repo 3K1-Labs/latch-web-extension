@@ -170,10 +170,11 @@ The extension merges **`chromeExtensionId`** into begin, registration finish, au
 
 dApp `signTransaction` / sign-request review uses **wallet-side XDR decode** for what the user sees (`parseTxForReview` / `assessExternalSignReview` in `@latch/stellar`). The review list must not trust `prepare-sign` `operations[]` (often empty on the Go API).
 
-- **`prepare-sign` remains mandatory** for auth templates, digests, and signing. Confirm still consumes `prepared` via `signAndSubmitBuiltTx` / `signWithoutSubmitBuiltTx`.
+- **`prepare-sign` remains mandatory** for auth templates, digests, and signing. Confirm sends `EXECUTE_DAPP_EXTERNAL_SIGN` and the background signs the `prepared` it stored for that request, not the copy in the message — popup, side panel and `tabs/sign-request.tsx` all take that path.
 - **Consistency checks** (network, active smart account `C…`, invoke contract id sets from unsigned XDR vs `prepared.txXdr`) hard-block Confirm when they disagree. Compare contract ids — not raw XDR string equality.
 - **Fail closed** if Latch API / `prepare-sign` is down: no review and no “review anyway” path. Client-side simulate is out of scope.
 - Popup, side panel, and `tabs/sign-request.tsx` all render the same `localReview` payload from `prepareExternalSignSession`.
+- **Refuse self-calls (`self_admin_call`).** A dApp call can make the active smart account authorize a call to itself (`add_signer`, `add_context_rule`, `upgrade`, …) in a nested auth entry the host-function review never shows. `findSelfAccountCalls` ([`authTree.ts`](packages/stellar/src/authTree.ts)) flags **any** call to the account (no function-name list), any contract creation, and anything it cannot decode, in the unsigned tx, `prepared.txXdr` and every prepared auth entry. `assessExternalSignReview` blocks Confirm on it, and `executeDappExternalSignInBackground` checks again on the stored request before any signer runs. Keep that check out of the shared signers (`signBuiltTx.ts`): send, swap and rules setup legitimately authorize self-calls. The review lists the prepared auth tree (`localReview.authTree`).
 
 ### Multisig wallets (`/api/multisig` — shipped)
 
