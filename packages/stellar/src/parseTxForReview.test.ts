@@ -11,6 +11,7 @@ import {
 } from '@stellar/stellar-sdk'
 import { describe, expect, it } from 'vitest'
 
+import { authEntry, authInvocation, withAuth } from './authTestFixtures'
 import { FEE_FORWARDER_CONTRACT_ID } from './curatedAssets'
 import { buildUnsignedSacTransferTx } from './sacTransfer'
 import { assessExternalSignReview, parseTxForReview } from './parseTxForReview'
@@ -92,48 +93,6 @@ function forwardXdr(params: {
     .setTimeout(30)
     .build()
     .toXDR()
-}
-
-function authInvocation(
-  contractId: string,
-  fn: string,
-  subInvocations: xdr.SorobanAuthorizedInvocation[] = []
-): xdr.SorobanAuthorizedInvocation {
-  return new xdr.SorobanAuthorizedInvocation({
-    function: xdr.SorobanAuthorizedFunction.sorobanAuthorizedFunctionTypeContractFn(
-      new xdr.InvokeContractArgs({
-        contractAddress: new Address(contractId).toScAddress(),
-        functionName: fn,
-        args: [],
-      })
-    ),
-    subInvocations,
-  })
-}
-
-function authEntry(
-  signer: string,
-  rootInvocation: xdr.SorobanAuthorizedInvocation
-): xdr.SorobanAuthorizationEntry {
-  return new xdr.SorobanAuthorizationEntry({
-    credentials: xdr.SorobanCredentials.sorobanCredentialsAddress(
-      new xdr.SorobanAddressCredentials({
-        address: new Address(signer).toScAddress(),
-        nonce: xdr.Int64.fromString('1'),
-        signatureExpirationLedger: 100,
-        signature: xdr.ScVal.scvVoid(),
-      })
-    ),
-    rootInvocation,
-  })
-}
-
-/** Attaches auth entries to the (single) invokeHostFunction op of an unsigned tx. */
-function withAuth(txXdr: string, entries: xdr.SorobanAuthorizationEntry[]): string {
-  const envelope = xdr.TransactionEnvelope.fromXDR(txXdr, 'base64')
-  const op = envelope.v1().tx().operations()[0]!
-  op.body().invokeHostFunctionOp().auth(entries)
-  return envelope.toXDR('base64')
 }
 
 describe('parseTxForReview', () => {

@@ -6,7 +6,6 @@
 import {
   Address,
   Asset,
-  FeeBumpTransaction,
   Networks,
   Transaction,
   TransactionBuilder,
@@ -16,6 +15,7 @@ import {
 
 import type { ExternalSignLocalReview, Network, PreparedSignOperation } from '@latch/types'
 
+import { unwrapTransaction } from './authTree'
 import { formatSacRawToHuman, STELLAR_SAC_DISPLAY_DECIMALS } from './sacBalance'
 import { buildSacAssetInfoMap, stellarAddressEquals } from './smartAccountTransactions'
 import {
@@ -45,13 +45,6 @@ function truncateMiddle(addr: string, left = 6, right = 4): string {
 
 function networkFromPassphrase(networkPassphrase: string): StellarNetwork {
   return networkPassphrase === Networks.PUBLIC ? 'mainnet' : 'testnet'
-}
-
-function unwrapTransaction(envelope: Transaction | FeeBumpTransaction): Transaction {
-  if (envelope instanceof FeeBumpTransaction) {
-    return envelope.innerTransaction
-  }
-  return envelope
 }
 
 function tryAddressFromScVal(val: xdr.ScVal): string | null {
