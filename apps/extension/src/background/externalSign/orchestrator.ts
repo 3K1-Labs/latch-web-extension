@@ -29,6 +29,7 @@ import { isNoContextRuleError, isPrepareSignMissingSetupError } from '../../ui/l
 import { isOriginAllowedForSigning } from './allowList'
 import { assertAllowedCallbackUrl } from './callbackUrl'
 import { resolveExternalSignContextSetup } from './contextRuleSetup'
+import { preparedAuthEntryXdrs } from './preparedAuthEntries'
 
 export type ExternalSignDecision = {
   approved: boolean
@@ -238,6 +239,7 @@ export async function prepareExternalSignSession(args: {
     preparedSmartAccount: prepared.smartAccountAddress,
     activeSmartAccount: active.smartAccountAddress,
     feeForwarderId: feeForwarderContractIdFor(signRequest.network),
+    preparedAuthEntriesXdr: preparedAuthEntryXdrs(prepared),
   })
 
   return { origin, signRequest, prepared, localReview }

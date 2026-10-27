@@ -9,6 +9,8 @@ import {
 } from '@stellar/stellar-sdk'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { OTHER_CONTRACT, authEntryXdr } from '../../test/authEntry'
+
 const prepareSign = vi.fn()
 const getAccounts = vi.fn()
 const getActiveNetwork = vi.fn(async () => 'testnet' as const)
@@ -70,7 +72,7 @@ function genericInvokeXdr(contractId: string, fn: string): string {
 function mockPrepared(txXdr: string) {
   return {
     txXdr,
-    authEntryXdr: 'auth',
+    authEntryXdr: authEntryXdr(SMART, { contractId: OTHER_CONTRACT, fn: 'swap' }),
     authDigestHex: 'deadbeef',
     contextRuleId: 1,
     validUntilLedger: 100,
@@ -117,6 +119,34 @@ describe('prepareExternalSignSession localReview', () => {
     expect(session.localReview.confirmBlocked).toBe(false)
     expect(session.localReview.operations.length).toBeGreaterThan(0)
     expect(session.localReview.operations[0]?.summary).toContain('swap')
+  })
+
+  it('blocks when a prepared auth entry calls the wallet itself', async () => {
+    const nativeId = Asset.native().contractId(Networks.TESTNET)
+    const xdr = genericInvokeXdr(nativeId, 'swap')
+    prepareSign.mockResolvedValue({
+      ...mockPrepared(xdr),
+      authEntriesXdr: [
+        authEntryXdr(SMART, {
+          contractId: nativeId,
+          fn: 'swap',
+          subs: [{ contractId: SMART, fn: 'batch_add_signer' }],
+        }),
+      ],
+    })
+
+    const session = await prepareExternalSignSession({
+      source: 'sign-request-tab',
+      request: {
+        network: 'testnet',
+        smartAccountAddress: SMART,
+        unsignedTxXdr: xdr,
+        origin: 'https://example.com',
+      },
+    })
+
+    expect(session.localReview.confirmBlocked).toBe(true)
+    expect(session.localReview.code).toBe('self_admin_call')
   })
 
   it('sets confirmBlocked on contract mismatch without throwing', async () => {
