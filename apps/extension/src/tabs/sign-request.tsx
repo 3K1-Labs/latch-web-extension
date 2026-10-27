@@ -13,11 +13,6 @@ import type {
 import { parseSignRequestFromSearchParams } from '../background/externalSign/parseSignRequest'
 import { externalResultToCallback } from '../background/externalSign/callbackUrl'
 import { ExternalSignReviewScreen } from '../ui/screens/dapp/ExternalSignReviewScreen'
-import {
-  extractTransactionHash,
-  signAndSubmitBuiltTx,
-  signWithoutSubmitBuiltTx,
-} from '../ui/lib/signBuiltTx'
 import { friendlyError, sendToBackground } from '../ui/lib/backgroundClient'
 
 type Phase = 'loading' | 'review' | 'redirecting' | 'error'
@@ -96,52 +91,32 @@ export default function SignRequestTab() {
     setError(null)
     try {
       const submit = session.signRequest.submit !== false
-      if (submit) {
-        const submitData = await signAndSubmitBuiltTx({
-          build: session.prepared as PrepareSignResponse,
-          activeAccount,
-          surface: 'popup',
-          onProgress: setProgressLabel,
-        })
-        const txHash = extractTransactionHash(submitData)
-        await sendToBackground({
-          type: 'RESOLVE_PENDING_DAPP_REQUEST',
-          payload: { requestId: session.requestId, approved: true, txHash },
-        })
-        redirectWithResult(
-          session.signRequest.callback,
-          {
-            status: 'signed',
-            txHash,
-            requestId: session.signRequest.requestId,
-            network: session.signRequest.network,
-          },
-          submit
-        )
-        return
-      }
-
-      const { signedTxXdr, signedAuthEntry } = await signWithoutSubmitBuiltTx({
-        build: session.prepared as PrepareSignResponse,
-        activeAccount,
-        surface: 'popup',
-        onProgress: setProgressLabel,
-      })
-      await sendToBackground({
-        type: 'RESOLVE_PENDING_DAPP_REQUEST',
+      setProgressLabel(submit ? 'Submitting…' : 'Preparing…')
+      // The background signs the build it stored for this request and refuses unsafe ones.
+      const res = await sendToBackground<
+        {
+          requestId: string
+          accountId: string
+          prepared: PrepareSignResponse
+          submit: boolean
+        },
+        { signedTxXdr?: string; signedAuthEntry?: string; txHash?: string }
+      >({
+        type: 'EXECUTE_DAPP_EXTERNAL_SIGN',
         payload: {
           requestId: session.requestId,
-          approved: true,
-          signedTxXdr,
-          signedAuthEntry,
+          accountId: activeAccount.id,
+          prepared: session.prepared,
+          submit,
         },
       })
+      if (!res.ok || !res.data) throw new Error(friendlyError(res.error) || 'Signing failed.')
+      const { txHash, signedTxXdr, signedAuthEntry } = res.data
       redirectWithResult(
         session.signRequest.callback,
         {
           status: 'signed',
-          signedTxXdr,
-          signedAuthEntry,
+          ...(submit ? { txHash } : { signedTxXdr, signedAuthEntry }),
           requestId: session.signRequest.requestId,
           network: session.signRequest.network,
         },
@@ -152,6 +127,7 @@ export default function SignRequestTab() {
       setBusy(false)
       setProgressLabel(null)
       try {
+        // No-op when the background already failed the request; clears it when it never got that far.
         await sendToBackground({
           type: 'RESOLVE_PENDING_DAPP_REQUEST',
           payload: {

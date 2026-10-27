@@ -242,7 +242,7 @@ export async function tryHandleConfirmMessage(
         accountId: string
         prepared: BuildSendTxResponse
         submit: boolean
-        surface: 'popup' | 'sidepanel'
+        surface?: 'popup' | 'sidepanel'
       }
       try {
         const data = await executeDappExternalSignInBackground(req)

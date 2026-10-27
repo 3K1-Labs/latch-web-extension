@@ -1099,9 +1099,11 @@ export type BackgroundRequestPayloadByType = {
   EXECUTE_DAPP_EXTERNAL_SIGN: {
     requestId: string
     accountId: string
+    /** Ignored by the signer: the background signs the build it stored for `requestId`. */
     prepared: BuildSendTxResponse
     submit: boolean
-    surface: 'popup' | 'sidepanel'
+    /** Omitted by the sign-request tab, which reads the response itself and has no popup to restore. */
+    surface?: 'popup' | 'sidepanel'
   }
   EXECUTE_MULTISIG_PASSKEY_APPROVE: {
     accountId: string
