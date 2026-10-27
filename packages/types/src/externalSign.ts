@@ -13,6 +13,8 @@ export interface AuthTreeNode {
   contractId?: string
   functionName?: string
   depth: number
+  /** Set on review rows: the node calls the wallet itself, creates a contract, or can't be read. */
+  selfCall?: boolean
 }
 
 /** What one prepared auth entry authorizes. `selfCall`: it calls the wallet itself or can't be read. */

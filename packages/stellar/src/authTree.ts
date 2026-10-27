@@ -177,10 +177,17 @@ export function authTreeForEntries(
   return entriesXdr.map((entryXdr, entryIndex) => {
     try {
       const entry = xdr.SorobanAuthorizationEntry.fromXDR(entryXdr, 'base64')
-      const nodes = flattenAuthInvocation(entry.rootInvocation())
-      return { entryIndex, nodes, selfCall: nodes.some((n) => isSelfCallOrUnsafe(n, accountId)) }
+      const nodes = flattenAuthInvocation(entry.rootInvocation()).map((node) => ({
+        ...node,
+        selfCall: isSelfCallOrUnsafe(node, accountId),
+      }))
+      return { entryIndex, nodes, selfCall: nodes.some((n) => n.selfCall) }
     } catch {
-      return { entryIndex, nodes: [{ kind: 'unknown' as const, depth: 0 }], selfCall: true }
+      return {
+        entryIndex,
+        nodes: [{ kind: 'unknown' as const, depth: 0, selfCall: true }],
+        selfCall: true,
+      }
     }
   })
 }

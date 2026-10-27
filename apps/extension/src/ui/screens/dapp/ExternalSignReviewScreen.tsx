@@ -2,6 +2,8 @@ import { useState } from 'react'
 
 import type { ExternalSignLocalReview, PrepareSignResponse } from '@latch/types'
 
+import { AuthTreeList } from './components/AuthTreeList'
+
 function hostnameFromOrigin(origin: string): string {
   try {
     return new URL(origin).hostname
@@ -126,6 +128,8 @@ export function ExternalSignReviewScreen({
             </ul>
           )}
         </div>
+
+        {localReview.authTree?.length ? <AuthTreeList entries={localReview.authTree} /> : null}
       </div>
 
       {displayError ? (
