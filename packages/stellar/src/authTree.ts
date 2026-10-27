@@ -12,15 +12,11 @@ import {
   xdr,
 } from '@stellar/stellar-sdk'
 
+import type { AuthTreeNode, ExternalSignAuthTreeEntry } from '@latch/types'
+
 import { stellarAddressEquals } from './smartAccountTransactions'
 
-export type AuthTreeNode = {
-  kind: 'contract_fn' | 'create_contract' | 'unknown'
-  /** C… address for `contract_fn`. */
-  contractId?: string
-  functionName?: string
-  depth: number
-}
+export type { AuthTreeNode }
 
 export type SelfCallFinding = {
   entryIndex: number
@@ -171,4 +167,20 @@ export function findSelfAccountCalls(args: {
   })
 
   return findings
+}
+
+/** Per-entry trees for the review screen. An entry that can't be decoded is shown as `unknown`. */
+export function authTreeForEntries(
+  accountId: string,
+  entriesXdr: string[]
+): ExternalSignAuthTreeEntry[] {
+  return entriesXdr.map((entryXdr, entryIndex) => {
+    try {
+      const entry = xdr.SorobanAuthorizationEntry.fromXDR(entryXdr, 'base64')
+      const nodes = flattenAuthInvocation(entry.rootInvocation())
+      return { entryIndex, nodes, selfCall: nodes.some((n) => isSelfCallOrUnsafe(n, accountId)) }
+    } catch {
+      return { entryIndex, nodes: [{ kind: 'unknown' as const, depth: 0 }], selfCall: true }
+    }
+  })
 }

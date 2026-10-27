@@ -505,7 +505,7 @@ describe('assessExternalSignReview', () => {
     expect(review.warnings).toBeUndefined()
   })
 
-  it('GHSA-8hrp: confirms a dApp call whose auth tree calls the wallet own batch_add_signer', () => {
+  it('GHSA-8hrp: blocks a dApp call whose auth tree calls the wallet own batch_add_signer', () => {
     const tx = withAuth(genericInvokeXdr({ contractId: OTHER_C, fn: 'swap' }), [
       authEntry(
         smart,
@@ -513,7 +513,96 @@ describe('assessExternalSignReview', () => {
       ),
     ])
     const review = assess(tx, tx)
-    // Reproduces the advisory: nothing inspects the auth tree yet.
+    expect(review.confirmBlocked).toBe(true)
+    expect(review.code).toBe('self_admin_call')
+    expect(review.confirmBlockedReason).toContain('batch_add_signer')
+  })
+
+  it('blocks a self-call that only appears in the prepared auth entries', () => {
+    const unsigned = genericInvokeXdr({ contractId: OTHER_C, fn: 'swap' })
+    const entry = authEntry(
+      smart,
+      authInvocation(OTHER_C, 'swap', [authInvocation(smart, 'add_context_rule')])
+    )
+    const review = assessExternalSignReview({
+      unsignedTxXdr: unsigned,
+      preparedTxXdr: unsigned,
+      preparedAuthEntriesXdr: [entry.toXDR('base64')],
+      networkPassphrase: PASSPHRASE,
+      signRequestNetwork: 'testnet',
+      preparedNetwork: 'testnet',
+      activeNetwork: 'testnet',
+      signRequestSmartAccount: smart,
+      preparedSmartAccount: smart,
+      activeSmartAccount: smart,
+      feeForwarderId: FEE_FORWARDER,
+    })
+    expect(review.code).toBe('self_admin_call')
+    expect(review.authTree?.[0]?.selfCall).toBe(true)
+  })
+
+  it('blocks when a prepared auth entry cannot be decoded', () => {
+    const tx = genericInvokeXdr({ contractId: OTHER_C, fn: 'swap' })
+    const review = assessExternalSignReview({
+      unsignedTxXdr: tx,
+      preparedTxXdr: tx,
+      preparedAuthEntriesXdr: ['not-xdr'],
+      networkPassphrase: PASSPHRASE,
+      signRequestNetwork: 'testnet',
+      preparedNetwork: 'testnet',
+      activeNetwork: 'testnet',
+      signRequestSmartAccount: smart,
+      preparedSmartAccount: smart,
+      activeSmartAccount: smart,
+    })
+    expect(review.code).toBe('self_admin_call')
+  })
+
+  it('blocks a host function that calls the wallet directly', () => {
+    const tx = genericInvokeXdr({ contractId: smart, fn: 'add_signer' })
+    expect(assess(tx, tx).code).toBe('self_admin_call')
+  })
+
+  it('keeps account_mismatch ahead of self_admin_call', () => {
+    const tx = withAuth(genericInvokeXdr({ contractId: OTHER_C, fn: 'swap' }), [
+      authEntry(smart, authInvocation(smart, 'add_signer')),
+    ])
+    const review = assessExternalSignReview({
+      unsignedTxXdr: tx,
+      preparedTxXdr: tx,
+      networkPassphrase: PASSPHRASE,
+      signRequestNetwork: 'testnet',
+      preparedNetwork: 'testnet',
+      activeNetwork: 'testnet',
+      signRequestSmartAccount: smart,
+      preparedSmartAccount: smart,
+      activeSmartAccount: 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC',
+    })
+    expect(review.code).toBe('account_mismatch')
+  })
+
+  it('shows the prepared auth tree and allows a SAC call that is not a self-call', () => {
+    const tx = genericInvokeXdr({ contractId: nativeId, fn: 'transfer' })
+    const entry = authEntry(smart, authInvocation(nativeId, 'transfer'))
+    const review = assessExternalSignReview({
+      unsignedTxXdr: tx,
+      preparedTxXdr: tx,
+      preparedAuthEntriesXdr: [entry.toXDR('base64')],
+      networkPassphrase: PASSPHRASE,
+      signRequestNetwork: 'testnet',
+      preparedNetwork: 'testnet',
+      activeNetwork: 'testnet',
+      signRequestSmartAccount: smart,
+      preparedSmartAccount: smart,
+      activeSmartAccount: smart,
+    })
     expect(review.confirmBlocked).toBe(false)
+    expect(review.authTree).toEqual([
+      {
+        entryIndex: 0,
+        selfCall: false,
+        nodes: [expect.objectContaining({ functionName: 'transfer' })],
+      },
+    ])
   })
 })

@@ -6,6 +6,22 @@ export interface PreparedSignOperation {
   details?: Record<string, string>
 }
 
+/** One call in a Soroban auth entry's invocation tree. */
+export interface AuthTreeNode {
+  kind: 'contract_fn' | 'create_contract' | 'unknown'
+  /** C… address for `contract_fn`. */
+  contractId?: string
+  functionName?: string
+  depth: number
+}
+
+/** What one prepared auth entry authorizes. `selfCall`: it calls the wallet itself or can't be read. */
+export interface ExternalSignAuthTreeEntry {
+  entryIndex: number
+  nodes: AuthTreeNode[]
+  selfCall: boolean
+}
+
 /** Wallet-decoded review of the dApp unsigned XDR (hybrid external-sign review). */
 export interface ExternalSignLocalReview {
   operations: PreparedSignOperation[]
@@ -18,8 +34,11 @@ export interface ExternalSignLocalReview {
     | 'account_mismatch'
     | 'contract_mismatch'
     | 'user_mismatch'
+    | 'self_admin_call'
   /** Non-blocking cautions from the local decode (e.g. a fee token other than XLM or USDC). */
   warnings?: string[]
+  /** Auth entries that get signed. Optional: requests stored before this field existed lack it. */
+  authTree?: ExternalSignAuthTreeEntry[]
 }
 
 export interface PrepareSignRequest {
