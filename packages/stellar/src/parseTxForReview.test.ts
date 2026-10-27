@@ -94,6 +94,48 @@ function forwardXdr(params: {
     .toXDR()
 }
 
+function authInvocation(
+  contractId: string,
+  fn: string,
+  subInvocations: xdr.SorobanAuthorizedInvocation[] = []
+): xdr.SorobanAuthorizedInvocation {
+  return new xdr.SorobanAuthorizedInvocation({
+    function: xdr.SorobanAuthorizedFunction.sorobanAuthorizedFunctionTypeContractFn(
+      new xdr.InvokeContractArgs({
+        contractAddress: new Address(contractId).toScAddress(),
+        functionName: fn,
+        args: [],
+      })
+    ),
+    subInvocations,
+  })
+}
+
+function authEntry(
+  signer: string,
+  rootInvocation: xdr.SorobanAuthorizedInvocation
+): xdr.SorobanAuthorizationEntry {
+  return new xdr.SorobanAuthorizationEntry({
+    credentials: xdr.SorobanCredentials.sorobanCredentialsAddress(
+      new xdr.SorobanAddressCredentials({
+        address: new Address(signer).toScAddress(),
+        nonce: xdr.Int64.fromString('1'),
+        signatureExpirationLedger: 100,
+        signature: xdr.ScVal.scvVoid(),
+      })
+    ),
+    rootInvocation,
+  })
+}
+
+/** Attaches auth entries to the (single) invokeHostFunction op of an unsigned tx. */
+function withAuth(txXdr: string, entries: xdr.SorobanAuthorizationEntry[]): string {
+  const envelope = xdr.TransactionEnvelope.fromXDR(txXdr, 'base64')
+  const op = envelope.v1().tx().operations()[0]!
+  op.body().invokeHostFunctionOp().auth(entries)
+  return envelope.toXDR('base64')
+}
+
 describe('parseTxForReview', () => {
   it('summarizes SAC transfer with amount and truncated to', () => {
     const nativeId = Asset.native().contractId(PASSPHRASE)
@@ -502,5 +544,17 @@ describe('assessExternalSignReview', () => {
     const review = assess(forwarded, forwarded)
     expect(review.operations.filter((op) => op.type === 'network_fee')).toHaveLength(1)
     expect(review.warnings).toBeUndefined()
+  })
+
+  it('GHSA-8hrp: confirms a dApp call whose auth tree calls the wallet own batch_add_signer', () => {
+    const tx = withAuth(genericInvokeXdr({ contractId: OTHER_C, fn: 'swap' }), [
+      authEntry(
+        smart,
+        authInvocation(OTHER_C, 'swap', [authInvocation(smart, 'batch_add_signer')])
+      ),
+    ])
+    const review = assess(tx, tx)
+    // Reproduces the advisory: nothing inspects the auth tree yet.
+    expect(review.confirmBlocked).toBe(false)
   })
 })
