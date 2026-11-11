@@ -25,7 +25,11 @@ import {
   ensureSwapRulesConfigured,
   withInflightContextSetup,
 } from '../tx/ensureContextRules'
-import { isNoContextRuleError, isPrepareSignMissingSetupError } from '../../ui/lib/sendTx'
+import {
+  accountToSignerType,
+  isNoContextRuleError,
+  isPrepareSignMissingSetupError,
+} from '../../ui/lib/sendTx'
 import { isOriginAllowedForSigning } from './allowList'
 import { assertAllowedCallbackUrl } from './callbackUrl'
 import { resolveExternalSignContextSetup } from './contextRuleSetup'
@@ -42,11 +46,6 @@ export type ExternalSignDecision = {
 }
 
 export type WaitForExternalSignDecision = (requestId: string) => Promise<ExternalSignDecision>
-
-function accountModeToSignerType(account: StoredAccount): SendSignerType {
-  // Mnemonic accounts sign as a Delegated(gAddress) signer.
-  return account.mode === 'passkey' ? 'passkey' : 'delegated'
-}
 
 /**
  * Prefer Chrome-attested senderUrl when present (provider / content-script path).
@@ -210,14 +209,14 @@ export async function prepareExternalSignSession(args: {
     })
   }
 
-  const signerType = accountModeToSignerType(active)
+  const signerType = accountToSignerType(active.mode)
   const prepared = await prepareSignWithContextRuleRecovery({
     prepareArgs: {
       network: signRequest.network,
       smartAccountAddress: signRequest.smartAccountAddress,
       unsignedTxXdr,
       signerType,
-      signerG: active.gAddress,
+      signerG: active.mode === 'mnemonic' ? active.gAddress : undefined,
       keyDataHex:
         active.mode === 'passkey' ? active.passkeyKeyDataHex?.trim() || undefined : undefined,
     },

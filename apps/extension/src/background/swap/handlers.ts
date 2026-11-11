@@ -29,6 +29,7 @@ import { reviewedSwapBody, saveReviewedBuild } from '../confirm/reviewedBuildSto
 import { withCancellableWaiter } from '../requestWaiter'
 import { getActiveNetwork, networkPassphraseFor, sorobanRpcUrlFor } from '../network/config'
 import { getAccounts } from '../storage'
+import { accountToSignerType } from '../../ui/lib/sendTx'
 import {
   findSwapToken,
   loadPayTokens,
@@ -36,11 +37,6 @@ import {
   preferredReceiveTokenIds,
 } from './catalog'
 import { getOrCreateQuote, quoteCacheKey } from './quoteCache'
-
-function accountModeToSignerType(account: StoredAccount): SendSignerType {
-  // Mnemonic accounts sign as a Delegated(gAddress) signer.
-  return account.mode === 'passkey' ? 'passkey' : 'delegated'
-}
 
 function passkeyKeyDataHex(account: StoredAccount): string | undefined {
   return account.mode === 'passkey' ? account.passkeyKeyDataHex?.trim() || undefined : undefined
@@ -181,7 +177,7 @@ export async function runPrepareSwapTx(req: PrepareSwapTxRequest): Promise<Prepa
   const account = await getActiveAccount(req.accountId)
   const network = await getActiveNetwork()
   const { quote: payload } = req
-  const signerType = accountModeToSignerType(account)
+  const signerType = accountToSignerType(account.mode)
 
   const buildBody = aquariusBuildParams(payload, network)
   if (buildBody) {
@@ -190,7 +186,7 @@ export async function runPrepareSwapTx(req: PrepareSwapTxRequest): Promise<Prepa
       network,
       smartAccountAddress: account.smartAccountAddress!,
       signerType,
-      signerG: account.gAddress,
+      signerG: account.mode === 'mnemonic' ? account.gAddress : undefined,
       keyDataHex: passkeyKeyDataHex(account),
     })
   }

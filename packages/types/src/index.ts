@@ -183,8 +183,8 @@ export interface GetSmartAccountBalancesApiResponse {
 
 /**
  * Backend build/setup contract (`BuildSendTxRequest.signerType`, etc.).
- * `'delegated'` is a Delegated(gAddress) signer, whichever wallet holds the key; it is what
- * mnemonic accounts send; do not rename without a coordinated backend change.
+ * `'delegated'` is a Delegated(gAddress) signer, whichever wallet holds the key. It is what
+ * mnemonic accounts send. Do not rename without a coordinated backend change.
  */
 export type SendSignerType = 'passkey' | 'delegated'
 
@@ -368,7 +368,7 @@ export interface CreateOrConnectDelegatedResponse {
   alreadyDeployed: boolean
 }
 
-/** GET /api/smart-account/delegated?gAddress=… — shape may include backend aliases */
+/** GET /api/smart-account/delegated?gAddress=… */
 export interface DelegatedSmartAccountStatusResponse {
   deployed: boolean
   smartAccountAddress: string

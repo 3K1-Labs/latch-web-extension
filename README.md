@@ -73,8 +73,8 @@ worker:
 - The mnemonic, BIP-39 seed, and private key material are **never** sent to the
   Latch backend or logged.
 - Only the derived **`gAddress`** (`G…`) is used over HTTPS:
-  `GET /api/smart-account/freighter?gAddress=…` to predict status, then
-  `POST /api/smart-account/freighter` with `{ "gAddress" }` if the smart account
+  `GET /api/smart-account/delegated?gAddress=…` to predict status, then
+  `POST /api/smart-account/delegated` with `{ "gAddress" }` if the smart account
   is not yet deployed — the same delegated-signer flow as Freighter-backed
   accounts.
 - By default the phrase is **not** persisted. Optional **Remember** stores an
