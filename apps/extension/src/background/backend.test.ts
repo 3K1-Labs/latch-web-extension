@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   BackendError,
   buildSendTx,
+  createOrConnectDelegated,
   createOrConnectPasskey,
+  getDelegatedSmartAccountStatus,
   passkeyAuthenticationBegin,
   passkeyAuthenticationFinish,
   passkeyRegistrationBegin,
@@ -303,6 +305,65 @@ describe('background/backend', () => {
     })
 
     expect(urls[0]).toContain('/api/smart-account/setup-send-rules')
+
+    vi.unstubAllGlobals()
+  })
+
+  it('getDelegatedSmartAccountStatus GETs to /api/smart-account/delegated with encoded params', async () => {
+    const urls: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        urls.push(url)
+        return {
+          ok: true,
+          async text() {
+            return JSON.stringify({
+              deployed: true,
+              smartAccountAddress: 'CADDR123',
+            })
+          },
+        } as any
+      })
+    )
+
+    const res = await getDelegatedSmartAccountStatus('GABC123')
+    expect(urls[0]).toContain('/api/smart-account/delegated?gAddress=GABC123')
+    expect(res).toEqual({
+      deployed: true,
+      smartAccountAddress: 'CADDR123',
+    })
+
+    vi.unstubAllGlobals()
+  })
+
+  it('createOrConnectDelegated POSTs to /api/smart-account/delegated', async () => {
+    const urls: string[] = []
+    const bodies: Record<string, unknown>[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        urls.push(url)
+        bodies.push(JSON.parse((init?.body as string) || '{}'))
+        return {
+          ok: true,
+          async text() {
+            return JSON.stringify({
+              smartAccountAddress: 'CADDR123',
+              alreadyDeployed: false,
+            })
+          },
+        } as any
+      })
+    )
+
+    const res = await createOrConnectDelegated({ gAddress: 'GABC123' })
+    expect(urls[0]).toContain('/api/smart-account/delegated')
+    expect(bodies[0]).toMatchObject({ gAddress: 'GABC123' })
+    expect(res).toEqual({
+      smartAccountAddress: 'CADDR123',
+      alreadyDeployed: false,
+    })
 
     vi.unstubAllGlobals()
   })

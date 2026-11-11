@@ -21,6 +21,7 @@ import {
 import { signAndSubmitBuiltTxInBackground } from '../tx/signBuiltTx'
 import { webauthnVerifierAddressFromEnv } from '../../ui/lib/latchEnv'
 import {
+  accountToSignerType,
   isNoContextRuleError,
   isPrepareSignMissingSetupError,
   isSwapRuleReconfigureError,
@@ -30,11 +31,6 @@ import { swapBuildNeedsSignerReconfigure } from '../../ui/lib/swapTx'
 import { networkFeeChanged, networkFeeEquals } from '../../ui/lib/networkFee'
 import { isReviewAgainError, reviewAgainError } from './reviewAgain'
 import { reviewedSwapBody, takeReviewedBuild } from './reviewedBuildStore'
-
-function accountToSignerType(mode: StoredAccount['mode']): 'passkey' | 'delegated' {
-  if (mode === 'passkey' || mode === 'multisig') return 'passkey'
-  return 'delegated'
-}
 
 function resolveSwapRouterContractId(
   quote: SwapQuotePayload,

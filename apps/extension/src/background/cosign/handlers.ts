@@ -28,6 +28,7 @@ import { exportRawPublicKey, deriveBlindSignerId, deriveMemberBlindId, toBase64 
 import { signerPublicKeyBytesForAccount } from './signerBytes'
 import { wckBytesFromRecord } from './wckStorage'
 import { createAccount, getAccounts } from '../storage'
+import { accountToSignerType } from '../../ui/lib/sendTx'
 import { predictMultisigAccountFromSigners } from '../api/multisigAccounts'
 import { prepareSign, submitTxWebauthn } from '../api/transactions'
 import { latchFetch } from '../api/client'
@@ -308,13 +309,13 @@ export async function tryHandleCosignMessage(
       const { accounts } = await getAccounts()
       const linked = accounts.find((a) => a.id === req.linkedAccountId)
       if (!linked) throw new Error('Linked account not found')
-      const signerType = linked.mode === 'passkey' ? 'passkey' : 'delegated'
+      const signerType = accountToSignerType(linked.mode)
       const data = await prepareSign({
         network: await getActiveNetwork(),
         smartAccountAddress: req.smartAccountAddress,
         unsignedTxXdr: req.unsignedTxXdr,
         signerType,
-        signerG: linked.gAddress,
+        signerG: linked.mode === 'mnemonic' ? linked.gAddress : undefined,
       })
       sendResponse(ok(data))
       return true
